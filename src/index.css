@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  :root {
+    --canvas-bg: #EDEFEA;
+    --canvas-surface: #F8F9F5;
+    --canvas-surface-subtle: #E4E8DF;
+    --canvas-border: #D3D8CC;
+    --brand-teal: #0d9488;
+    --brand-teal-hover: #0f766e;
+    color-scheme: light;
+  }
+
+  .dark {
+    --canvas-bg: #090D14;
+    --canvas-surface: #111726;
+    --canvas-surface-subtle: #1E293B;
+    --canvas-border: rgba(255, 255, 255, 0.08);
+    --brand-teal: #14b8a6;
+    --brand-teal-hover: #2dd4bf;
+    color-scheme: dark;
+  }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    background-color: var(--canvas-bg);
+  }
+}
+
+/* Modo claro antifatiga visual: elimina el blanco puro (#FFFFFF) deslumbrante y adopta una paleta clínica cálida de porcelana y lino (#F8F9F5 sobre #EDEFEA) */
+:root:not(.dark) {
+  /* Tarjetas, modales, barras y menús */
+  .bg-white {
+    background-color: #F8F9F5;
+  }
+  .bg-white\/90 {
+    background-color: rgba(248, 249, 245, 0.92);
+  }
+  .bg-white\/95 {
+    background-color: rgba(248, 249, 245, 0.96);
+  }
+
+  /* Fondos secundarios, inputs, badges y barras de búsqueda */
+  .bg-slate-50 {
+    background-color: #E4E8DF;
+  }
+  .bg-slate-100 {
+    background-color: #DFE3DA;
+  }
+
+  /* Estados hover suaves */
+  .hover\:bg-slate-50:hover {
+    background-color: #EBEFE6;
+  }
+  .hover\:bg-slate-100:hover {
+    background-color: #E2E6DC;
+  }
+
+  /* Bordes cálidos integrados */
+  .border-slate-200,
+  .border-slate-200\/80,
+  .border-slate-200\/60 {
+    border-color: #D3D8CC;
+  }
+  .border-slate-100 {
+    border-color: #DDE2D6;
+  }
+  .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #DDE2D6;
+  }
+}
+
+/* Custom dedicated scrollbars */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+.dark .scrollbar-thin {
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 9999px;
+}
+.dark .scrollbar-thin::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(13, 148, 136, 0.75);
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 184, 166, 0.75);
+}
+
+/* Global scrollbar fallback */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}
+
+/* Clinical Print / Save-as-PDF Styles */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    height: auto !important;
+  }
+
+  header,
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-overflow-visible {
+    overflow: visible !important;
+  }
+
+  .print-break-inside-avoid {
+    break-inside: avoid;
+  }
+
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+}
+
