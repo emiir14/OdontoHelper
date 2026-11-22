@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Save, Trash2, RotateCcw, History } from 'lucide-react';
+import { Save, Trash2, RotateCcw, History, Lock } from 'lucide-react';
+import { canMutateClinicalRecord } from '../core/clinic/referralExport';
 import {
   OdontogramRecord,
   ToothRecord,
@@ -7,6 +8,12 @@ import {
   ToothSurfaceKey,
 } from '../core/types';
 import { useAppStore } from '../store/useAppStore';
+import { Button } from './ui/Button';
+import {
+  inputClass,
+  segmentedTabClass,
+  segmentedTrackClass,
+} from './ui/uiClasses';
 
 interface OdontogramPanelProps {
   patientId: string;
@@ -283,11 +290,29 @@ export const OdontogramPanel: React.FC<OdontogramPanelProps> = ({
   patientName,
 }) => {
   const {
+    workspace,
+    authUserId,
+    patients,
+    patientShares,
     odontograms,
     saveOdontogramSnapshot,
     deleteOdontogramSnapshot,
     openConfirm,
   } = useAppStore();
+
+  const targetPatient = useMemo(
+    () => patients.find((p) => p.id === patientId),
+    [patients, patientId]
+  );
+
+  const isSharedPatient = useMemo(
+    () =>
+      Boolean(
+        (targetPatient && workspace && targetPatient.workspaceId !== workspace.id) ||
+          patientShares.some((s) => s.patientId === patientId && s.status === 'accepted')
+      ),
+    [targetPatient, workspace, patientShares, patientId]
+  );
 
   const patientSnapshots = useMemo(
     () => odontograms.filter((o) => o.patientId === patientId),
@@ -423,43 +448,45 @@ export const OdontogramPanel: React.FC<OdontogramPanelProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-0.5 text-[11px] font-medium">
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2">
+          <div className={segmentedTrackClass}>
             <button
               type="button"
               onClick={() => setDentition('adulto')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                dentition === 'adulto'
-                  ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 font-semibold shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
+              className={segmentedTabClass(dentition === 'adulto')}
             >
               Permanente
             </button>
             <button
               type="button"
               onClick={() => setDentition('mixto')}
-              className={`px-2.5 py-1 rounded-lg transition-colors ${
-                dentition === 'mixto'
-                  ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 font-semibold shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400'
-              }`}
+              className={segmentedTabClass(dentition === 'mixto')}
             >
               Mixto / Temporarios
             </button>
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="subtle"
+            size="xs"
+            icon={<RotateCcw className="w-3.5 h-3.5" />}
             onClick={() => setTeeth({})}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
             title="Limpiar diagrama actual"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Limpiar</span>
-          </button>
+            Limpiar
+          </Button>
         </div>
       </div>
+
+      {isSharedPatient && (
+        <div className="p-2.5 rounded-xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200/70 dark:border-teal-800/60 flex items-center gap-2 text-[11px] text-teal-900 dark:text-teal-200">
+          <Lock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+          <span>
+            Ficha compartida: al guardar se registra una <strong>nueva evolución</strong> en el
+            odontograma con tu firma; las mediciones previas del colega quedan protegidas.
+          </span>
+        </div>
+      )}
 
       {/* Findings / Tool Palette */}
       <div className="flex flex-wrap gap-1.5">
@@ -488,7 +515,10 @@ export const OdontogramPanel: React.FC<OdontogramPanelProps> = ({
       </div>
 
       {/* Arch Diagram (Adult Upper / Lower + Pediatric when Mixto) */}
-      <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 p-3 space-y-3 overflow-x-auto">
+      <div className="sm:hidden text-[11px] text-slate-400 text-center">
+        Deslizá horizontalmente para ver toda la arcada
+      </div>
+      <div className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 p-3 space-y-3 overflow-x-auto scrollbar-thin">
         {/* Upper Arch */}
         <div className="min-w-[660px] space-y-2">
           <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 px-2">
@@ -646,7 +676,7 @@ export const OdontogramPanel: React.FC<OdontogramPanelProps> = ({
               }));
             }}
             placeholder={`Observación pieza ${selectedToothFdi} (ej: filtración marginal)...`}
-            className="w-full px-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+            className={inputClass}
           />
         </div>
 
@@ -665,23 +695,23 @@ export const OdontogramPanel: React.FC<OdontogramPanelProps> = ({
               value={snapshotLabel}
               onChange={(e) => setSnapshotLabel(e.target.value)}
               placeholder="Etiqueta de medición (ej: Ingreso, Control 6 meses)"
-              className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+              className={`${inputClass} flex-1`}
             />
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Nota general..."
-              className="flex-1 px-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+              className={`${inputClass} flex-1`}
             />
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Save className="w-3.5 h-3.5" />}
               onClick={handleSaveSnapshot}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors whitespace-nowrap"
             >
-              <Save className="w-3.5 h-3.5" />
-              <span>Guardar medición</span>
-            </button>
+              Guardar medición
+            </Button>
           </div>
         </div>
       </div>
@@ -694,48 +724,62 @@ export const OdontogramPanel: React.FC<OdontogramPanelProps> = ({
             <span>Mediciones guardadas ({patientSnapshots.length})</span>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden">
-            {patientSnapshots.map((snap) => (
-              <div
-                key={snap.id}
-                className={`px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs ${
-                  loadedSnapshotId === snap.id
-                    ? 'bg-teal-50/60 dark:bg-teal-950/30'
-                    : 'bg-white dark:bg-slate-900'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleLoadSnapshot(snap)}
-                  className="text-left min-w-0 flex-1"
+            {patientSnapshots.map((snap) => {
+              const canDelete = canMutateClinicalRecord(snap, workspace?.id, authUserId);
+              return (
+                <div
+                  key={snap.id}
+                  className={`px-3.5 py-2.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 sm:gap-3 text-xs ${
+                    loadedSnapshotId === snap.id
+                      ? 'bg-teal-50/60 dark:bg-teal-950/30'
+                      : 'bg-white dark:bg-slate-900'
+                  }`}
                 >
-                  <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                    {snap.label}
-                  </div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
-                    {new Date(snap.createdAt).toLocaleDateString('es-AR')}
-                    {snap.createdBy ? ` · ${snap.createdBy}` : ''}
-                    {snap.notes ? ` · ${snap.notes}` : ''}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    openConfirm({
-                      title: '¿Eliminar medición de odontograma?',
-                      description: `Se eliminará "${snap.label}".`,
-                      confirmText: 'Eliminar',
-                      cancelText: 'Cancelar',
-                      isDestructive: true,
-                      onConfirm: () => deleteOdontogramSnapshot(snap.id),
-                    })
-                  }
-                  className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"
-                  title="Eliminar medición"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() => handleLoadSnapshot(snap)}
+                    className="text-left min-w-0 flex-1"
+                  >
+                    <div className="font-semibold text-slate-900 dark:text-slate-100 break-words">
+                      {snap.label}
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
+                      {new Date(snap.createdAt).toLocaleDateString('es-AR')}
+                      {snap.createdBy ? ` · ${snap.createdBy}` : ''}
+                      {snap.notes ? ` · ${snap.notes}` : ''}
+                    </div>
+                  </button>
+                  {canDelete ? (
+                    <Button
+                      variant="icon"
+                      size="xs"
+                      className="hover:text-rose-600"
+                      onClick={() =>
+                        openConfirm({
+                          title: '¿Eliminar medición de odontograma?',
+                          description: `Se eliminará "${snap.label}".`,
+                          confirmText: 'Eliminar',
+                          cancelText: 'Cancelar',
+                          isDestructive: true,
+                          onConfirm: () => deleteOdontogramSnapshot(snap.id),
+                        })
+                      }
+                      title="Eliminar medición"
+                      aria-label="Eliminar medición"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  ) : (
+                    <span
+                      className="p-1.5 text-slate-400 dark:text-slate-500 inline-flex items-center gap-1 text-[10px]"
+                      title={`Registro protegido de ${snap.createdBy || 'colega'}`}
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -38,6 +38,15 @@
   body {
     background-color: var(--canvas-bg);
   }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  a[href] {
+    cursor: pointer;
+  }
 }
 
 /* Modo claro antifatiga visual: elimina el blanco puro (#FFFFFF) deslumbrante y adopta una paleta clínica cálida de porcelana y lino (#F8F9F5 sobre #EDEFEA) */
@@ -71,15 +80,75 @@
 
   /* Bordes cálidos integrados */
   .border-slate-200,
+  .border-slate-200\/90,
   .border-slate-200\/80,
+  .border-slate-200\/70,
   .border-slate-200\/60 {
     border-color: #D3D8CC;
   }
   .border-slate-100 {
     border-color: #DDE2D6;
   }
-  .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+  .divide-slate-100\/80 > :not([hidden]) ~ :not([hidden]) {
     border-color: #DDE2D6;
+  }
+  .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+  .divide-slate-200\/80 > :not([hidden]) ~ :not([hidden]),
+  .divide-slate-200\/70 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #D3D8CC;
+  }
+}
+
+/* Modal & Toast compositor animations */
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalScaleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: modalFadeIn 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-scale-in {
+  animation: modalScaleIn 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-toast-in {
+  animation: toastSlideIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-scale-in,
+  .animate-toast-in {
+    animation: none;
   }
 }
 
@@ -153,6 +222,14 @@
   }
 
   .print-only {
+    display: block !important;
+  }
+
+  body.printing-referral-sheet #root {
+    display: none !important;
+  }
+
+  body.printing-referral-sheet .referral-print-sheet {
     display: block !important;
   }
 

@@ -14,6 +14,26 @@ export class LocalAudioStore implements IAudioStore {
       .sortBy('chunkIndex');
   }
 
+  public async hasAudio(sessionId: string): Promise<boolean> {
+    const count = await db.audioChunks.where('sessionId').equals(sessionId).count();
+    return count > 0;
+  }
+
+  public async getAudioAvailabilityMap(sessionIds: string[]): Promise<Record<string, boolean>> {
+    const map: Record<string, boolean> = {};
+    if (sessionIds.length === 0) return map;
+    const counts = await Promise.all(
+      sessionIds.map(async (id) => ({
+        id,
+        has: (await db.audioChunks.where('sessionId').equals(id).count()) > 0,
+      }))
+    );
+    for (const item of counts) {
+      map[item.id] = item.has;
+    }
+    return map;
+  }
+
   public async getCombinedPcmFloat32(sessionId: string): Promise<Float32Array> {
     const chunks = await this.getChunks(sessionId);
     if (chunks.length === 0) {

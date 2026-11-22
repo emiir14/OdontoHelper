@@ -1,36 +1,42 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   BookOpen,
   Calendar,
   CalendarCheck,
   CalendarPlus,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   ClipboardList,
   Download,
   Edit2,
+  ExternalLink,
+  Eye,
   FileAudio,
   FileText,
   FlaskConical,
   History,
   Image as ImageIcon,
+  List,
   Lock,
   Mail,
   MapPin,
-  MessageCircle,
   Mic,
   MoreVertical,
   Phone,
   Plus,
   Printer,
+  RotateCcw,
+  RotateCw,
   Search,
   Share2,
   ShieldAlert,
   Smile,
+  Table2,
   Trash2,
+  Unlink,
   Upload,
   User,
   UserPlus,
@@ -43,19 +49,26 @@ import {
   COMMON_DENTAL_PROCEDURES,
   DEFAULT_CURRENCY,
   PAYMENT_METHOD_LABELS,
-  buildAppointmentIcs,
   calculateAgeFromBirthDate,
-  calculateSingleCurrencyBalance,
+  downloadAppointmentIcsFile,
+  downloadCsvFile,
   formatBirthDateDisplay,
+  formatCurrencyHeading,
   formatMoney,
   generateAppointmentMailtoUrl,
   generateGoogleCalendarUrl,
   generateWhatsAppUrl,
-  getPatientPendingLabAlerts,
+  lookupPendingLabAlerts,
+  toLocalIsoDate,
 } from '../core/clinic/clinicHelpers';
+import { canMutateClinicalRecord } from '../core/clinic/referralExport';
+import { PatientSubViewSlug } from '../core/routing/appRoutes';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../core/utils/localDrafts';
+import { revealExpandedSection } from '../core/utils/scrollReveal';
 import {
   AppointmentStatus,
   EvolutionHighlightColor,
+  LabOrder,
   LabOrderStatus,
   Patient,
   PatientAnamnesis,
@@ -65,22 +78,31 @@ import {
 } from '../core/types';
 import { useAppStore } from '../store/useAppStore';
 import { TransactionModal } from './CajaView';
+import { LabOrderDetailModal } from './LabOrderDetailModal';
+import { LabOrderModal } from './LabOrderModal';
 import { OdontogramPanel } from './OdontogramPanel';
-import { PeriodontogramPanel } from './PeriodontogramPanel';
 import { TreatmentPlanCard, TreatmentPlanModal } from './PresupuestosView';
+import { SharePatientModal } from './SharePatientModal';
 import { PatientEditModal } from './patient/PatientEditModal';
 import { PatientNextControlModal } from './patient/PatientNextControlModal';
+import { AnchoredDropdown } from './ui/AnchoredDropdown';
+import { AutoResizeTextarea } from './ui/AutoResizeTextarea';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import {
+  DataTable,
+  DataTableColumn,
+  DataTableSortState,
+  parseSortState,
+  serializeSortState,
+} from './ui/DataTable';
+import { Modal } from './ui/Modal';
+import { SearchInput } from './ui/SearchInput';
+import { VirtualList } from './ui/VirtualList';
+import { WhatsAppIcon } from './ui/WhatsAppIcon';
+import { buttonClass, dropdownClass, emptyStateClass, kpiCardClass } from './ui/uiClasses';
 
-type PatientSubView =
-  | 'overview'
-  | 'cuentas'
-  | 'historia'
-  | 'archivos'
-  | 'cuestionario'
-  | 'odontograma'
-  | 'citas_pendientes'
-  | 'historial_citas'
-  | 'trabajos_lab';
+type PatientSubView = PatientSubViewSlug;
 
 const ANAMNESIS_LABELS: Array<{ key: keyof PatientAnamnesis; label: string }> = [
   { key: 'hypertension', label: 'Hipertensión arterial' },
@@ -158,6 +180,9 @@ const LAB_STATUS_LABELS: Record<LabOrderStatus, string> = {
 
 export const PatientSearchView: React.FC = () => {
   const {
+    currentView,
+    workspace,
+    authUserId,
     patients,
     sessions,
     appointments,
@@ -168,10 +193,19 @@ export const PatientSearchView: React.FC = () => {
     financialTransactions,
     labOrders,
     patientFiles,
+    patientFilesLoading,
+    patientFilesCloudError,
+    patientIndexes,
+    patientShares,
     selectedPatientId,
+    selectedPatientSubView,
+    setPatientSubView,
     selectPatient,
+    startEditPatient,
     updatePatient,
     deletePatient,
+    deletePatientsBulk,
+    unlinkPatientShare,
     updateAppointmentStatus,
     startRecording,
     createEvolutionEntry,
@@ -180,27 +214,65 @@ export const PatientSearchView: React.FC = () => {
     toggleTreatmentItemCompleted,
     deleteTreatmentPlan,
     deleteFinancialTransaction,
+    updateLabOrderStatus,
+    deleteLabOrder,
     addPatientFile,
     deletePatientFile,
     setView,
+    setAgendaDate,
     openConfirm,
+    logActivity,
     showToast,
     settings,
-    canAccessFinance,
+    setDraftDirty,
+    guardNavigation,
+    moduleQuery,
+    setModuleQuery,
   } = useAppStore();
 
   const [query, setQuery] = useState('');
   const [insuranceFilter, setInsuranceFilter] = useState('all');
+  const [directoryMode, setDirectoryMode] = useState<'list' | 'table'>(
+    currentView === 'manage-patients' ? 'table' : 'list'
+  );
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Card Modal & SubView State
-  const [subView, setSubView] = useState<PatientSubView>('overview');
+  useEffect(() => {
+    if (currentView === 'manage-patients') {
+      setDirectoryMode('table');
+    }
+  }, [currentView]);
+
+  useEffect(() => {
+    const valid = new Set(patients.map((p) => p.id));
+    setSelectedIds((prev) => {
+      const next = prev.filter((id) => valid.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [patients]);
+
+  const defaultSort: DataTableSortState = { columnId: 'fullName', direction: 'asc' };
+  const currentSort = useMemo(
+    () => parseSortState(moduleQuery.sort) ?? defaultSort,
+    [moduleQuery.sort]
+  );
+  const currentPage = moduleQuery.page || 1;
+  const currentPageSize = moduleQuery.pageSize || 25;
+
+  // Card Modal & URL-synced SubView State
+  const subView = selectedPatientSubView;
+  const setSubView = setPatientSubView;
   const [menuOpen, setMenuOpen] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [showNextControlModal, setShowNextControlModal] = useState(false);
 
-  // Sub-tabs inside Cuentas & Odontograma
-  const [cuentasTab, setCuentasTab] = useState<'movimientos' | 'presupuestos'>('movimientos');
-  const [chartSubTab, setChartSubTab] = useState<'odontogram' | 'periodontogram'>('odontogram');
+  // Sub-tabs inside Cuentas (synced with URL moduleQuery.tab)
+  const cuentasTab: 'movimientos' | 'presupuestos' =
+    moduleQuery.tab === 'presupuestos' ? 'presupuestos' : 'movimientos';
+  const setCuentasTab = (tab: 'movimientos' | 'presupuestos') => {
+    setModuleQuery({ tab: tab === 'presupuestos' ? 'presupuestos' : undefined });
+  };
 
   // Cuestionario accordions
   const [anamnesisOpen, setAnamnesisOpen] = useState(false);
@@ -212,62 +284,269 @@ export const PatientSearchView: React.FC = () => {
 
   // Evolution composer state
   const [showEvolutionForm, setShowEvolutionForm] = useState(false);
-  const [evolDate, setEvolDate] = useState(new Date().toISOString().slice(0, 10));
+  const [evolDate, setEvolDate] = useState(toLocalIsoDate());
   const [evolTooth, setEvolTooth] = useState('');
   const [evolProcedure, setEvolProcedure] = useState('');
   const [evolDescription, setEvolDescription] = useState('');
   const [evolColor, setEvolColor] = useState<EvolutionHighlightColor>('teal');
-  const [evolPin, setEvolPin] = useState('');
 
-  // Budget & Ledger modal state
+  // Recovered draft indicators
+  const [anamnesisDraftRestored, setAnamnesisDraftRestored] = useState(false);
+  const [physicalDraftRestored, setPhysicalDraftRestored] = useState(false);
+  const [evolutionDraftRestored, setEvolutionDraftRestored] = useState(false);
+  const draftPatInitRef = useRef<string | null>(null);
+
+  // Budget, Ledger & Lab modal state
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [txModalType, setTxModalType] = useState<'payment' | 'charge' | null>(null);
+  const [showLabModal, setShowLabModal] = useState(false);
+  const [viewingPatientLabOrderId, setViewingPatientLabOrderId] = useState<string | null>(null);
+  const [editingPatientLabOrder, setEditingPatientLabOrder] = useState<LabOrder | null>(null);
 
-  // Files & Images state
+  // Files & Images state (category filter synced with URL moduleQuery.category)
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [fileCategory, setFileCategory] = useState<PatientFileCategory>('radiografia');
   const [fileNotes, setFileNotes] = useState('');
-  const [fileFilter, setFileFilter] = useState<'all' | PatientFileCategory>('all');
+  const fileFilter: 'all' | PatientFileCategory =
+    moduleQuery.category === 'radiografia' ||
+    moduleQuery.category === 'foto_clinica' ||
+    moduleQuery.category === 'documento' ||
+    moduleQuery.category === 'consentimiento'
+      ? moduleQuery.category
+      : 'all';
+  const setFileFilter = (cat: 'all' | PatientFileCategory) => {
+    setModuleQuery({ category: cat === 'all' ? undefined : cat });
+  };
   const [previewFile, setPreviewFile] = useState<PatientFileAttachment | null>(null);
 
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const anamnesisRef = useRef<HTMLDivElement | null>(null);
+  const physicalExamRef = useRef<HTMLDivElement | null>(null);
 
-  const activeProf = professionals.find((p) => p.id === activeProfessionalId);
+  const activeProf =
+    professionals.find((p) => p.id === activeProfessionalId) || professionals[0];
   const activeCurrency = settings?.currency || DEFAULT_CURRENCY;
-  const financeAllowed = canAccessFinance();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const showCurrencyCode = Boolean(settings?.showCurrencyCode);
+  const todayStr = toLocalIsoDate();
 
   const selectedPatient: Patient | undefined = useMemo(
-    () => (selectedPatientId ? patients.find((p) => p.id === selectedPatientId) : undefined),
-    [patients, selectedPatientId]
+    () =>
+      selectedPatientId
+        ? patientIndexes.patientsById.get(selectedPatientId) ||
+          patients.find((p) => p.id === selectedPatientId)
+        : undefined,
+    [patientIndexes, patients, selectedPatientId]
   );
 
-  // Reset sub-screen and drafts whenever selected patient changes
+  const activeAcceptedSharePatientIds = useMemo(
+    () =>
+      new Set(
+        patientShares.filter((s) => s.status === 'accepted').map((s) => s.patientId)
+      ),
+    [patientShares]
+  );
+
+  const selectedPatientShares = useMemo(() => {
+    if (!selectedPatient) return [];
+    return patientShares.filter(
+      (s) => s.patientId === selectedPatient.id && s.status !== 'revoked'
+    );
+  }, [selectedPatient, patientShares]);
+
+  const isSharedFromOther = Boolean(
+    selectedPatient && workspace && selectedPatient.workspaceId !== workspace.id
+  );
+
+  const incomingShare = useMemo(() => {
+    if (!isSharedFromOther || !workspace) return undefined;
+    return (
+      selectedPatientShares.find(
+        (s) => s.status === 'accepted' && s.recipientWorkspaceId === workspace.id
+      ) || selectedPatientShares[0]
+    );
+  }, [isSharedFromOther, workspace, selectedPatientShares]);
+
+  const acceptedOutgoingShares = useMemo(
+    () =>
+      !isSharedFromOther
+        ? selectedPatientShares.filter((s) => s.status === 'accepted')
+        : [],
+    [isSharedFromOther, selectedPatientShares]
+  );
+
+  // Sync / restore local drafts whenever selected patient changes
   useEffect(() => {
-    setSubView('overview');
     setMenuOpen(false);
-    setAnamnesisOpen(false);
-    setPhysicalExamOpen(false);
-    setShowEvolutionForm(false);
-    if (selectedPatient) {
-      setPhysicalDraft(selectedPatient.physicalExam || {});
-      setAllergiesDraft(selectedPatient.allergies || '');
-      setMedicalHistoryDraft(selectedPatient.medicalHistory || '');
-      setMedicationDetailDraft(selectedPatient.anamnesis?.medicationDetail || '');
+    setShowShareModal(false);
+    if (!selectedPatient) {
+      draftPatInitRef.current = null;
+      setAnamnesisOpen(false);
+      setPhysicalExamOpen(false);
+      setShowEvolutionForm(false);
+      setAnamnesisDraftRestored(false);
+      setPhysicalDraftRestored(false);
+      setEvolutionDraftRestored(false);
+      return;
     }
+
+    const patId = selectedPatient.id;
+    draftPatInitRef.current = patId;
+
+    // 1. Anamnesis draft
+    const anamSaved = loadLocalDraft<{
+      allergiesDraft: string;
+      medicalHistoryDraft: string;
+      medicationDetailDraft: string;
+    }>(`patient_search:anamnesis:${patId}`);
+    const baseAllergies = selectedPatient.allergies || '';
+    const baseMedHist = selectedPatient.medicalHistory || '';
+    const baseMedDetail = selectedPatient.anamnesis?.medicationDetail || '';
+    if (
+      anamSaved?.data &&
+      (anamSaved.data.allergiesDraft !== baseAllergies ||
+        anamSaved.data.medicalHistoryDraft !== baseMedHist ||
+        anamSaved.data.medicationDetailDraft !== baseMedDetail)
+    ) {
+      setAllergiesDraft(anamSaved.data.allergiesDraft);
+      setMedicalHistoryDraft(anamSaved.data.medicalHistoryDraft);
+      setMedicationDetailDraft(anamSaved.data.medicationDetailDraft);
+      setAnamnesisDraftRestored(true);
+      setAnamnesisOpen(true);
+      setDraftDirty(`patient_anamnesis:${patId}`, `Anamnesis de ${selectedPatient.fullName}`);
+    } else {
+      setAllergiesDraft(baseAllergies);
+      setMedicalHistoryDraft(baseMedHist);
+      setMedicationDetailDraft(baseMedDetail);
+      setAnamnesisDraftRestored(false);
+      setAnamnesisOpen(false);
+      setDraftDirty(`patient_anamnesis:${patId}`, null);
+    }
+
+    // 2. Physical Exam draft
+    const physSaved = loadLocalDraft<PatientPhysicalExam>(`patient_search:physical:${patId}`);
+    const basePhys = selectedPatient.physicalExam || {};
+    if (physSaved?.data && JSON.stringify(physSaved.data) !== JSON.stringify(basePhys)) {
+      setPhysicalDraft(physSaved.data);
+      setPhysicalDraftRestored(true);
+      setPhysicalExamOpen(true);
+      setDraftDirty(`patient_physical:${patId}`, `Examen físico de ${selectedPatient.fullName}`);
+    } else {
+      setPhysicalDraft(basePhys);
+      setPhysicalDraftRestored(false);
+      setPhysicalExamOpen(false);
+      setDraftDirty(`patient_physical:${patId}`, null);
+    }
+
+    // 3. Evolution composer draft
+    const evolSaved = loadLocalDraft<{
+      date: string;
+      tooth: string;
+      procedure: string;
+      description: string;
+      color: EvolutionHighlightColor;
+    }>(`patient_search:evolution:${patId}`);
+    if (
+      evolSaved?.data &&
+      (evolSaved.data.tooth.trim() ||
+        evolSaved.data.procedure.trim() ||
+        evolSaved.data.description.trim())
+    ) {
+      setEvolDate(evolSaved.data.date || toLocalIsoDate());
+      setEvolTooth(evolSaved.data.tooth || '');
+      setEvolProcedure(evolSaved.data.procedure || '');
+      setEvolDescription(evolSaved.data.description || '');
+      setEvolColor(evolSaved.data.color || 'teal');
+      setShowEvolutionForm(true);
+      setEvolutionDraftRestored(true);
+      setDraftDirty(`patient_evolution:${patId}`, `Evolución clínica de ${selectedPatient.fullName}`);
+    } else {
+      setEvolDate(toLocalIsoDate());
+      setEvolTooth('');
+      setEvolProcedure('');
+      setEvolDescription('');
+      setEvolColor('teal');
+      setShowEvolutionForm(false);
+      setEvolutionDraftRestored(false);
+      setDraftDirty(`patient_evolution:${patId}`, null);
+    }
+
+    return () => {
+      setDraftDirty(`patient_anamnesis:${patId}`, null);
+      setDraftDirty(`patient_physical:${patId}`, null);
+      setDraftDirty(`patient_evolution:${patId}`, null);
+    };
   }, [selectedPatient?.id]);
 
-  // Close 3-dots menu on outside click
+  // Auto-save anamnesis draft
   useEffect(() => {
-    if (!menuOpen) return;
-    const handleOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, [menuOpen]);
+    if (!selectedPatient || draftPatInitRef.current !== selectedPatient.id) return;
+    const patId = selectedPatient.id;
+    const isAnamDirty =
+      allergiesDraft !== (selectedPatient.allergies || '') ||
+      medicalHistoryDraft !== (selectedPatient.medicalHistory || '') ||
+      medicationDetailDraft !== (selectedPatient.anamnesis?.medicationDetail || '');
+    if (isAnamDirty) {
+      saveLocalDraft(`patient_search:anamnesis:${patId}`, {
+        allergiesDraft,
+        medicalHistoryDraft,
+        medicationDetailDraft,
+      });
+      setDraftDirty(`patient_anamnesis:${patId}`, `Anamnesis de ${selectedPatient.fullName}`);
+    } else {
+      clearLocalDraft(`patient_search:anamnesis:${patId}`);
+      setAnamnesisDraftRestored(false);
+      setDraftDirty(`patient_anamnesis:${patId}`, null);
+    }
+  }, [selectedPatient, allergiesDraft, medicalHistoryDraft, medicationDetailDraft, setDraftDirty]);
+
+  // Auto-save physical exam draft
+  useEffect(() => {
+    if (!selectedPatient || draftPatInitRef.current !== selectedPatient.id) return;
+    const patId = selectedPatient.id;
+    const isPhysDirty =
+      JSON.stringify(physicalDraft) !== JSON.stringify(selectedPatient.physicalExam || {});
+    if (isPhysDirty) {
+      saveLocalDraft(`patient_search:physical:${patId}`, physicalDraft);
+      setDraftDirty(`patient_physical:${patId}`, `Examen físico de ${selectedPatient.fullName}`);
+    } else {
+      clearLocalDraft(`patient_search:physical:${patId}`);
+      setPhysicalDraftRestored(false);
+      setDraftDirty(`patient_physical:${patId}`, null);
+    }
+  }, [selectedPatient, physicalDraft, setDraftDirty]);
+
+  // Auto-save clinical evolution draft
+  useEffect(() => {
+    if (!selectedPatient || draftPatInitRef.current !== selectedPatient.id) return;
+    const patId = selectedPatient.id;
+    const hasContent =
+      showEvolutionForm &&
+      Boolean(evolTooth.trim() || evolProcedure.trim() || evolDescription.trim());
+    if (hasContent) {
+      saveLocalDraft(`patient_search:evolution:${patId}`, {
+        date: evolDate,
+        tooth: evolTooth,
+        procedure: evolProcedure,
+        description: evolDescription,
+        color: evolColor,
+      });
+      setDraftDirty(`patient_evolution:${patId}`, `Evolución clínica de ${selectedPatient.fullName}`);
+    } else {
+      clearLocalDraft(`patient_search:evolution:${patId}`);
+      setEvolutionDraftRestored(false);
+      setDraftDirty(`patient_evolution:${patId}`, null);
+    }
+  }, [
+    selectedPatient,
+    showEvolutionForm,
+    evolDate,
+    evolTooth,
+    evolProcedure,
+    evolDescription,
+    evolColor,
+    setDraftDirty,
+  ]);
+
 
   const insurances = useMemo(() => {
     const set = new Set<string>();
@@ -298,6 +577,172 @@ export const PatientSearchView: React.FC = () => {
     });
   }, [patients, query, insuranceFilter]);
 
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = (visibleIds: string[]) => {
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      const visibleSet = new Set(visibleIds);
+      setSelectedIds((prev) => prev.filter((id) => !visibleSet.has(id)));
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const exportRowsToCsv = async (targetPatients: Patient[], label: string) => {
+    const headers = [
+      'Nombre',
+      'DNI',
+      'Edad',
+      'Telefono',
+      'Email',
+      'Obra Social',
+      'Afiliado',
+      'Alergias',
+      'Motivo',
+    ];
+    const rows = targetPatients.map((p) => [
+      p.fullName,
+      p.dni,
+      p.age,
+      p.phone,
+      p.email,
+      p.insuranceProvider,
+      p.insuranceNumber,
+      p.allergies,
+      (p.chiefComplaint || '').replace(/\n/g, ' '),
+    ]);
+    downloadCsvFile(
+      `odontohelper_pacientes_${new Date().toISOString().slice(0, 10)}.csv`,
+      headers,
+      rows,
+      true
+    );
+    await logActivity('exported', 'patient', `${label} (${targetPatients.length})`);
+    showToast(`CSV exportado (${targetPatients.length} pacientes)`, 'success');
+  };
+
+  const tableColumns: DataTableColumn<Patient>[] = [
+    {
+      id: 'fullName',
+      label: 'Paciente',
+      sortValue: (p) => p.fullName,
+      render: (p) => {
+        const isShared =
+          (workspace && p.workspaceId !== workspace.id) ||
+          activeAcceptedSharePatientIds.has(p.id);
+        return (
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+              {p.fullName}
+            </span>
+            {isShared && (
+              <Badge tone="blue" size="xs">
+                Compartido
+              </Badge>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'dni',
+      label: 'DNI / CI',
+      sortValue: (p) => p.dni || '',
+      render: (p) => (
+        <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+          {p.dni || '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'phone',
+      label: 'Teléfono',
+      sortValue: (p) => p.phone || '',
+      render: (p) => (
+        <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+          {p.phone || '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'insuranceProvider',
+      label: 'Cobertura',
+      sortValue: (p) => p.insuranceProvider || 'Particular',
+      render: (p) => (
+        <Badge tone={p.insuranceProvider ? 'teal' : 'neutral'} size="xs">
+          {p.insuranceProvider || 'Particular'}
+        </Badge>
+      ),
+    },
+    {
+      id: 'allergies',
+      label: 'Alergias / Notas',
+      sortValue: (p) => p.allergies || p.chiefComplaint || '',
+      cellClassName: 'max-w-xs truncate text-slate-500 dark:text-slate-400',
+      render: (p) => p.allergies || p.chiefComplaint || '—',
+    },
+    {
+      id: 'actions',
+      label: 'Acciones',
+      align: 'right',
+      sortable: false,
+      render: (p) => {
+        const isForeign = Boolean(workspace && p.workspaceId !== workspace.id);
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              variant="icon"
+              size="xs"
+              onClick={() => selectPatient(p.id)}
+              title="Abrir historia clínica"
+              aria-label="Abrir historia clínica"
+              className="hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Button>
+            {!isForeign && (
+              <>
+                <Button
+                  variant="icon"
+                  size="xs"
+                  onClick={() => startEditPatient(p.id)}
+                  title="Editar paciente"
+                  aria-label="Editar paciente"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="icon"
+                  size="xs"
+                  onClick={() =>
+                    openConfirm({
+                      title: '¿Eliminar paciente?',
+                      description: `Se eliminará la ficha de "${p.fullName}" del padrón activo.`,
+                      confirmText: 'Eliminar',
+                      cancelText: 'Cancelar',
+                      isDestructive: true,
+                      onConfirm: () => deletePatient(p.id),
+                    })
+                  }
+                  title="Eliminar paciente"
+                  aria-label="Eliminar paciente"
+                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
   const patientSessions = useMemo(() => {
     if (!selectedPatient) return [];
     const lowerName = selectedPatient.fullName.toLowerCase();
@@ -311,15 +756,18 @@ export const PatientSearchView: React.FC = () => {
 
   const patientAppointments = useMemo(() => {
     if (!selectedPatient) return [];
-    return appointments
-      .filter(
-        (a) =>
-          !a.deletedAt &&
-          (a.patientId === selectedPatient.id ||
-            a.patientName.toLowerCase() === selectedPatient.fullName.toLowerCase())
-      )
-      .sort((a, b) => `${b.date} ${b.startTime}`.localeCompare(`${a.date} ${a.startTime}`));
-  }, [selectedPatient, appointments]);
+    const byId = patientIndexes.appointmentsByPatientId.get(selectedPatient.id) || [];
+    const byName =
+      patientIndexes.appointmentsByPatientName.get(
+        selectedPatient.fullName.trim().toLowerCase()
+      ) || [];
+    const mergedMap = new Map<string, (typeof appointments)[number]>();
+    for (const a of byId) mergedMap.set(a.id, a);
+    for (const a of byName) mergedMap.set(a.id, a);
+    return Array.from(mergedMap.values()).sort((a, b) =>
+      `${b.date} ${b.startTime}`.localeCompare(`${a.date} ${a.startTime}`)
+    );
+  }, [selectedPatient, patientIndexes]);
 
   const pendingAppointments = useMemo(() => {
     return patientAppointments
@@ -343,15 +791,16 @@ export const PatientSearchView: React.FC = () => {
 
   const patientPlans = useMemo(() => {
     if (!selectedPatient) return [];
-    return treatmentPlans.filter((p) => !p.deletedAt && p.patientId === selectedPatient.id);
-  }, [selectedPatient, treatmentPlans]);
+    return patientIndexes.plansByPatientId.get(selectedPatient.id) || [];
+  }, [selectedPatient, patientIndexes]);
 
   const patientTransactions = useMemo(() => {
     if (!selectedPatient) return [];
-    return financialTransactions
-      .filter((tx) => !tx.deletedAt && tx.patientId === selectedPatient.id)
-      .sort((a, b) => (b.date !== a.date ? b.date.localeCompare(a.date) : b.createdAt - a.createdAt));
-  }, [selectedPatient, financialTransactions]);
+    const list = patientIndexes.transactionsByPatientId.get(selectedPatient.id) || [];
+    return [...list].sort((a, b) =>
+      b.date !== a.date ? b.date.localeCompare(a.date) : b.createdAt - a.createdAt
+    );
+  }, [selectedPatient, patientIndexes]);
 
   // Compute chronological running balance per row for the Cuentas table
   const transactionsWithRunningBalance = useMemo(() => {
@@ -371,8 +820,14 @@ export const PatientSearchView: React.FC = () => {
     if (!selectedPatient) {
       return { charged: 0, paid: 0, balance: 0 };
     }
-    return calculateSingleCurrencyBalance(selectedPatient.id, financialTransactions);
-  }, [selectedPatient, financialTransactions]);
+    return (
+      patientIndexes.balancesByPatientId.get(selectedPatient.id) || {
+        charged: 0,
+        paid: 0,
+        balance: 0,
+      }
+    );
+  }, [selectedPatient, patientIndexes]);
 
   const patientLabOrders = useMemo(() => {
     if (!selectedPatient) return [];
@@ -384,10 +839,22 @@ export const PatientSearchView: React.FC = () => {
     );
   }, [selectedPatient, labOrders]);
 
+  const viewingPatientLabOrder = useMemo(
+    () =>
+      viewingPatientLabOrderId
+        ? labOrders.find((o) => o.id === viewingPatientLabOrderId) || null
+        : null,
+    [viewingPatientLabOrderId, labOrders]
+  );
+
   const pendingLabAlerts = useMemo(() => {
     if (!selectedPatient) return [];
-    return getPatientPendingLabAlerts(selectedPatient.id, selectedPatient.fullName, labOrders);
-  }, [selectedPatient, labOrders]);
+    return lookupPendingLabAlerts(
+      selectedPatient.id,
+      selectedPatient.fullName,
+      patientIndexes.pendingLabsIndex
+    );
+  }, [selectedPatient, patientIndexes]);
 
   const patientAttachments = useMemo(() => {
     if (!selectedPatient) return [];
@@ -408,38 +875,32 @@ export const PatientSearchView: React.FC = () => {
     });
   };
 
-  const handleCreateEvolution = async (e: React.FormEvent, withPin: boolean) => {
+  const handleCreateEvolution = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatient) return;
     if (!evolProcedure.trim() || !evolDescription.trim()) {
       showToast('Completá la prestación y el detalle de la evolución clínica.', 'warning');
       return;
     }
-    if (withPin && !evolPin.trim()) {
-      showToast('Ingresá el PIN del profesional para firmar la evolución.', 'warning');
-      return;
-    }
 
-    const created = await createEvolutionEntry(
-      {
-        patientId: selectedPatient.id,
-        date: evolDate,
-        toothFdi: evolTooth.trim() || undefined,
-        procedure: evolProcedure.trim(),
-        description: evolDescription.trim(),
-        highlightColor: evolColor,
-        professionalId: activeProf?.id,
-        professionalName: activeProf?.fullName,
-        signedWithPin: false,
-      },
-      withPin ? evolPin.trim() : undefined
-    );
+    const created = await createEvolutionEntry({
+      patientId: selectedPatient.id,
+      date: evolDate,
+      toothFdi: evolTooth.trim() || undefined,
+      procedure: evolProcedure.trim(),
+      description: evolDescription.trim(),
+      highlightColor: evolColor,
+      professionalId: activeProf?.id,
+      professionalName: activeProf?.fullName,
+    });
 
     if (created) {
+      clearLocalDraft(`patient_search:evolution:${selectedPatient.id}`);
+      setDraftDirty(`patient_evolution:${selectedPatient.id}`, null);
+      setEvolutionDraftRestored(false);
       setEvolTooth('');
       setEvolProcedure('');
       setEvolDescription('');
-      setEvolPin('');
       setShowEvolutionForm(false);
     }
   };
@@ -467,6 +928,9 @@ export const PatientSearchView: React.FC = () => {
         updatedAt: Date.now(),
       },
     });
+    clearLocalDraft(`patient_search:anamnesis:${selectedPatient.id}`);
+    setDraftDirty(`patient_anamnesis:${selectedPatient.id}`, null);
+    setAnamnesisDraftRestored(false);
     showToast('Anamnesis actualizada', 'success');
   };
 
@@ -479,6 +943,9 @@ export const PatientSearchView: React.FC = () => {
         updatedAt: Date.now(),
       },
     });
+    clearLocalDraft(`patient_search:physical:${selectedPatient.id}`);
+    setDraftDirty(`patient_physical:${selectedPatient.id}`, null);
+    setPhysicalDraftRestored(false);
     showToast('Examen físico guardado', 'success');
   };
 
@@ -486,7 +953,7 @@ export const PatientSearchView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file || !selectedPatient) return;
     if (file.size > 15 * 1024 * 1024) {
-      showToast('El archivo supera el límite de 15 MB para almacenamiento local.', 'warning');
+      showToast('El archivo supera el límite de 15 MB por archivo para subida a la nube.', 'warning');
       e.target.value = '';
       return;
     }
@@ -514,15 +981,16 @@ export const PatientSearchView: React.FC = () => {
     const lines = [
       `OdontoHelper — Estado de cuenta`,
       `Paciente: ${selectedPatient.fullName}`,
-      `Cargos totales: ${formatMoney(patientBalances.charged, activeCurrency)}`,
-      `Total abonado: ${formatMoney(patientBalances.paid, activeCurrency)}`,
-      `Saldo actual: ${formatMoney(patientBalances.balance, activeCurrency)}`,
+      `Cargos totales: ${formatMoney(patientBalances.charged, activeCurrency, showCurrencyCode)}`,
+      `Total abonado: ${formatMoney(patientBalances.paid, activeCurrency, showCurrencyCode)}`,
+      `Saldo actual: ${formatMoney(patientBalances.balance, activeCurrency, showCurrencyCode)}`,
       '',
       ...transactionsWithRunningBalance.slice(0, 8).map(
         ({ tx }) =>
           `${tx.date} · ${tx.concept}: ${tx.type === 'payment' ? '-' : '+'}${formatMoney(
             tx.amount,
-            activeCurrency
+            activeCurrency,
+            showCurrencyCode
           )}`
       ),
     ];
@@ -542,14 +1010,7 @@ export const PatientSearchView: React.FC = () => {
   const handleDownloadIcs = (apptId: string) => {
     const appt = patientAppointments.find((a) => a.id === apptId);
     if (!appt) return;
-    const ics = buildAppointmentIcs(appt);
-    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `cita_${appt.date}_${appt.patientName.replace(/\s+/g, '_')}.ics`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadAppointmentIcsFile(appt);
   };
 
   const patientWhatsApp = selectedPatient
@@ -570,7 +1031,8 @@ export const PatientSearchView: React.FC = () => {
   const debtReminderText = selectedPatient
     ? `Hola ${selectedPatient.fullName}, te recordamos tu estado de cuenta en OdontoHelper. Saldo actual: ${formatMoney(
         patientBalances.balance,
-        activeCurrency
+        activeCurrency,
+        showCurrencyCode
       )}.`
     : '';
 
@@ -604,62 +1066,67 @@ export const PatientSearchView: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* =================================================== */}
-      {/* SEARCH SCREEN: Buscando pacientes                   */}
+      {/* SEARCH & DIRECTORY SCREEN: Pacientes                */}
       {/* =================================================== */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 no-print">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-5 rounded-full bg-teal-600/15 dark:bg-teal-900/50 flex items-center px-1">
-            <span className="w-3.5 h-3.5 rounded-full bg-teal-600 dark:bg-teal-400 translate-x-3.5" />
+          <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
+            <Search className="w-4 h-4" />
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Buscando pacientes
+              Pacientes
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Seleccioná un paciente para abrir su ficha completa, cuentas, historia, cuestionario y odontograma.
+              Buscá, abrí historias clínicas o gestioná el padrón general, exportaciones CSV y depuración masiva.
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setView('patient-new')}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-xs min-h-[40px] self-start sm:self-auto whitespace-nowrap"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Nuevo paciente</span>
-        </button>
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5 w-full sm:w-auto">
+          {patients.length > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Download className="w-4 h-4 text-slate-500" />}
+              onClick={() => exportRowsToCsv(patients, 'Listado de pacientes exportado')}
+            >
+              Exportar CSV
+            </Button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setView('patient-new')}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-xs min-h-[40px] whitespace-nowrap cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Nuevo paciente</span>
+          </button>
+        </div>
       </div>
 
-      {/* Centered Search Input + Mutualista Filter */}
+      {/* Centered Search Input + Mutualista Filter + View Mode Toggle */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 no-print">
-        <div className="relative flex-1">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Nombre, teléfono, CI o ID"
-            className="w-full pl-4 pr-11 py-3 text-sm rounded-xl bg-white dark:bg-slate-900 border-b-2 border-slate-300 dark:border-slate-700 border-t border-x border-t-slate-200/70 border-x-slate-200/70 dark:border-t-slate-800 dark:border-x-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-b-teal-600 transition-colors shadow-2xs"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 absolute right-2.5 top-1/2 -translate-y-1/2"
-              aria-label="Limpiar búsqueda"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          ) : (
-            <Search className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-          )}
-        </div>
+        <SearchInput
+          value={query}
+          onChange={(val) => {
+            setQuery(val);
+            if (moduleQuery.page) setModuleQuery({ page: undefined });
+          }}
+          placeholder="Nombre, teléfono, CI o cobertura..."
+          inputClassName="min-h-[42px] text-sm"
+        />
 
         {insurances.length > 0 && (
           <select
             value={insuranceFilter}
-            onChange={(e) => setInsuranceFilter(e.target.value)}
-            className="px-3.5 py-3 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500 min-h-[44px]"
+            onChange={(e) => {
+              setInsuranceFilter(e.target.value);
+              if (moduleQuery.page) setModuleQuery({ page: undefined });
+            }}
+            aria-label="Filtrar por cobertura"
+            className={`${dropdownClass} min-h-[42px] w-full sm:w-52`}
           >
             <option value="all">Todas las coberturas</option>
             {insurances.map((ins) => (
@@ -669,9 +1136,47 @@ export const PatientSearchView: React.FC = () => {
             ))}
           </select>
         )}
+
+        {patients.length > 0 && (
+          <div
+            role="group"
+            aria-label="Modo de visualización de pacientes"
+            className="grid grid-cols-2 sm:inline-flex rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 text-xs shrink-0 w-full sm:w-auto"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setDirectoryMode('list');
+                if (currentView === 'manage-patients') {
+                  setView('patients-search');
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                directoryMode === 'list'
+                  ? 'bg-teal-600 text-white'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>Lista</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDirectoryMode('table')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                directoryMode === 'table'
+                  ? 'bg-teal-600 text-white'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Table2 className="w-3.5 h-3.5" />
+              <span>Tabla masiva</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Patient Results List */}
+      {/* Patient Results List / Bulk Table */}
       {patients.length === 0 ? (
         <div className="py-16 px-6 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80">
           <div className="w-12 h-12 mx-auto rounded-2xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400 mb-4">
@@ -691,62 +1196,171 @@ export const PatientSearchView: React.FC = () => {
             Registrar primer paciente
           </button>
         </div>
+      ) : directoryMode === 'table' ? (
+        <div className="space-y-2 no-print">
+          <DataTable
+            columns={tableColumns}
+            data={filteredPatients}
+            getRowKey={(p) => p.id}
+            selectable
+            selectedIds={selectedIds}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
+            sortState={currentSort}
+            onSortChange={(next) =>
+              setModuleQuery({ sort: serializeSortState(next) || undefined, page: undefined })
+            }
+            page={currentPage}
+            onPageChange={(nextPage) =>
+              setModuleQuery({ page: nextPage <= 1 ? undefined : nextPage })
+            }
+            pageSize={currentPageSize}
+            onPageSizeChange={(nextSize) =>
+              setModuleQuery({ pageSize: nextSize === 25 ? undefined : nextSize, page: undefined })
+            }
+            ariaLabel="Listado de pacientes"
+            bulkActions={
+              <>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  icon={<Download className="w-3.5 h-3.5" />}
+                  onClick={() => {
+                    const selectedSet = new Set(selectedIds);
+                    const subset = patients.filter((p) => selectedSet.has(p.id));
+                    exportRowsToCsv(subset, 'Selección de pacientes exportada');
+                  }}
+                >
+                  Exportar selección CSV
+                </Button>
+                <Button
+                  variant="dangerSoft"
+                  size="xs"
+                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                  onClick={() =>
+                    openConfirm({
+                      title: `¿Eliminar ${selectedIds.length} pacientes seleccionados?`,
+                      description:
+                        'Las fichas seleccionadas pasarán a la papelera local y ya no figurarán en el padrón activo.',
+                      confirmText: 'Eliminar selección',
+                      cancelText: 'Cancelar',
+                      isDestructive: true,
+                      onConfirm: async () => {
+                        await deletePatientsBulk(selectedIds);
+                        setSelectedIds([]);
+                      },
+                    })
+                  }
+                >
+                  Eliminar selección
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  icon={<X className="w-3.5 h-3.5" />}
+                  onClick={() => setSelectedIds([])}
+                >
+                  Deseleccionar
+                </Button>
+              </>
+            }
+            emptyState={
+              <div className={`${emptyStateClass} space-y-3`}>
+                <Users className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  No se encontraron pacientes que coincidan con "{query}".
+                </p>
+              </div>
+            }
+          />
+        </div>
       ) : filteredPatients.length === 0 ? (
         <div className="py-12 px-6 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 text-xs text-slate-500 dark:text-slate-400">
           No se encontraron pacientes que coincidan con "{query}".
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden shadow-2xs no-print">
-          {filteredPatients.map((patient) => {
-            const bal = calculateSingleCurrencyBalance(patient.id, financialTransactions);
-            const hasLab =
-              getPatientPendingLabAlerts(patient.id, patient.fullName, labOrders).length > 0;
-            return (
-              <button
-                key={patient.id}
-                type="button"
-                onClick={() => selectPatient(patient.id)}
-                className="w-full text-left px-4 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-4"
-              >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 overflow-hidden flex items-center justify-center text-slate-400 shrink-0">
-                    {patient.photoDataUrl ? (
-                      <img
-                        src={patient.photoDataUrl}
-                        alt={patient.fullName}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <User className="w-5 h-5" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                      {patient.fullName}
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums truncate mt-0.5">
-                      {patient.phone || 'Sin teléfono'}
-                      {patient.dni ? ` · CI ${patient.dni}` : ''}
-                    </div>
-                  </div>
-                </div>
+        <div className="space-y-2 no-print">
+          <div className="flex items-center justify-between px-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            <span className="font-mono tabular-nums">
+              {filteredPatients.length}{' '}
+              {filteredPatients.length === 1 ? 'paciente encontrado' : 'pacientes encontrados'}
+            </span>
+          </div>
 
-                <div className="flex items-center gap-3 shrink-0">
-                  {financeAllowed && bal.balance > 0 && (
-                    <span className="hidden sm:inline text-[11px] font-mono tabular-nums font-semibold text-amber-700 dark:text-amber-400">
-                      Saldo {formatMoney(bal.balance, activeCurrency)}
-                    </span>
-                  )}
-                  {hasLab && (
-                    <span className="hidden sm:inline text-[11px] font-medium text-blue-700 dark:text-blue-400">
-                      Lab pendiente
-                    </span>
-                  )}
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </div>
-              </button>
-            );
-          })}
+          <VirtualList
+            items={filteredPatients}
+            itemHeight={70}
+            maxHeight={560}
+            getKey={(patient) => patient.id}
+            ariaLabel="Listado virtualizado de pacientes"
+            className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xs"
+            innerClassName="divide-y divide-slate-100 dark:divide-slate-800"
+            renderItem={(patient) => {
+              const bal = patientIndexes.balancesByPatientId.get(patient.id) || {
+                charged: 0,
+                paid: 0,
+                balance: 0,
+              };
+              const hasLab =
+                lookupPendingLabAlerts(
+                  patient.id,
+                  patient.fullName,
+                  patientIndexes.pendingLabsIndex
+                ).length > 0;
+              return (
+                <button
+                  type="button"
+                  onClick={() => selectPatient(patient.id)}
+                  className="w-full h-[70px] text-left px-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-4 cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 overflow-hidden flex items-center justify-center text-slate-400 shrink-0">
+                      {patient.photoDataUrl ? (
+                        <img
+                          src={patient.photoDataUrl}
+                          alt={patient.fullName}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                          {patient.fullName}
+                        </span>
+                        {((workspace && patient.workspaceId !== workspace.id) ||
+                          activeAcceptedSharePatientIds.has(patient.id)) && (
+                          <Badge tone="blue" size="xs">
+                            Compartido
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums truncate mt-0.5">
+                        {patient.phone || 'Sin teléfono'}
+                        {patient.dni ? ` · CI ${patient.dni}` : ''}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0">
+                    {bal.balance > 0 && (
+                      <span className="hidden sm:inline text-[11px] font-mono tabular-nums font-semibold text-amber-700 dark:text-amber-400">
+                        Saldo {formatMoney(bal.balance, activeCurrency, showCurrencyCode)}
+                      </span>
+                    )}
+                    {hasLab && (
+                      <span className="hidden sm:inline text-[11px] font-medium text-blue-700 dark:text-blue-400">
+                        Lab pendiente
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </div>
+                </button>
+              );
+            }}
+          />
         </div>
       )}
 
@@ -754,261 +1368,355 @@ export const PatientSearchView: React.FC = () => {
       {/* PATIENT CARD MODAL (Overview + Full Sub-Views)      */}
       {/* =================================================== */}
       {selectedPatient && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-xs p-2 sm:p-5 print:static print:bg-transparent print:p-0">
-          <div
-            className={`w-full ${
-              subView === 'overview' ? 'max-w-3xl' : 'max-w-6xl'
-            } max-h-[92vh] print:max-h-none print:max-w-none rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl print:shadow-none print:border-none overflow-hidden flex flex-col transition-all`}
-          >
-            {/* Modal Header Bar */}
-            <div
-              className={`px-4 sm:px-6 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 ${
+        <Modal
+          onClose={() => guardNavigation(() => selectPatient(null))}
+          zIndexClass="z-40"
+          size={subView === 'overview' ? '3xl' : '6xl'}
+          headerVariant={subView !== 'overview' ? 'teal' : 'default'}
+          containerClassName="print:static print:bg-transparent print:p-0"
+          panelClassName="print:max-h-none print:max-w-none print:shadow-none print:border-none"
+          bodyClassName="p-4 sm:p-6"
+          title={subViewTitles[subView]}
+          subtitle={
+            subView !== 'overview'
+              ? `${selectedPatient.fullName}${selectedPatient.dni ? ` · CI ${selectedPatient.dni}` : ''}`
+              : undefined
+          }
+          headerPrefix={
+            <button
+              type="button"
+              onClick={() => {
+                if (subView === 'overview') {
+                  guardNavigation(() => selectPatient(null));
+                } else {
+                  setSubView('overview');
+                }
+              }}
+              className={`p-2 rounded-xl transition-colors no-print cursor-pointer ${
                 subView !== 'overview'
-                  ? 'bg-teal-700 text-white border-teal-800'
-                  : 'bg-white dark:bg-slate-900'
+                  ? 'text-white/90 hover:bg-white/15'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
+              title={subView === 'overview' ? 'Volver a buscar pacientes' : 'Volver a ficha'}
+              aria-label={subView === 'overview' ? 'Volver a buscar pacientes' : 'Volver a ficha'}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (subView === 'overview') {
-                      selectPatient(null);
-                    } else {
-                      setSubView('overview');
-                    }
-                  }}
-                  className={`p-2 rounded-xl transition-colors no-print ${
-                    subView !== 'overview'
-                      ? 'text-white/90 hover:bg-white/15'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                  title={subView === 'overview' ? 'Volver a buscar pacientes' : 'Volver a ficha'}
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </button>
-
-                <div className="min-w-0">
-                  <h2
-                    className={`text-base sm:text-lg font-bold truncate ${
-                      subView !== 'overview' ? 'text-white' : 'text-slate-900 dark:text-slate-100'
-                    }`}
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          }
+          headerActions={
+            <>
+              {subView === 'overview' && (
+                <>
+                  <Button
+                    variant="soft"
+                    size="xs"
+                    icon={<Share2 className="w-3.5 h-3.5" />}
+                    onClick={() => setShowShareModal(true)}
+                    title="Compartir ficha clínica con colega"
                   >
-                    {subViewTitles[subView]}
-                  </h2>
-                  {subView !== 'overview' && (
-                    <div className="text-[11px] text-teal-100 truncate">
-                      {selectedPatient.fullName}
-                      {selectedPatient.dni ? ` · CI ${selectedPatient.dni}` : ''}
-                    </div>
-                  )}
-                </div>
-              </div>
+                    <span>Compartir</span>
+                  </Button>
 
-              {/* Right Header Actions */}
-              <div className="flex items-center gap-1.5 shrink-0 no-print">
-                {subView === 'overview' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => handleStartPatientDictation(selectedPatient)}
-                      className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 transition-colors"
-                      title="Dictar consulta por voz"
-                    >
-                      <Mic className="w-3.5 h-3.5" />
-                      <span>Dictar</span>
-                    </button>
+                  <Button
+                    variant="soft"
+                    size="xs"
+                    icon={<Mic className="w-3.5 h-3.5" />}
+                    onClick={() => handleStartPatientDictation(selectedPatient)}
+                    title="Dictar consulta por voz"
+                  >
+                    <span>Dictar</span>
+                  </Button>
 
+                  {!isSharedFromOther && (
                     <button
                       type="button"
                       onClick={() => setShowEditModal(true)}
-                      className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className={buttonClass({ variant: 'icon', size: 'sm' })}
                       title="Editar paciente"
                       aria-label="Editar paciente"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
+                  )}
 
-                    {/* Three-dots Dropdown Menu */}
-                    <div className="relative" ref={menuRef}>
-                      <button
-                        type="button"
-                        onClick={() => setMenuOpen((v) => !v)}
-                        className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        title="Más opciones"
-                        aria-label="Más opciones"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-
-                      {menuOpen && (
-                        <div className="absolute right-0 mt-1.5 w-60 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 z-50 text-xs">
-                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                            Ver más
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMenuOpen(false);
-                              setSubView('citas_pendientes');
-                            }}
-                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                          >
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Citas Pendientes</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMenuOpen(false);
-                              setSubView('historial_citas');
-                            }}
-                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                          >
-                            <History className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Historial de Citas</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMenuOpen(false);
-                              setSubView('trabajos_lab');
-                            }}
-                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                          >
-                            <FlaskConical className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Trabajos de Laboratorio</span>
-                          </button>
-
-                          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                            Contacto
-                          </div>
-                          {patientMailUrl ? (
-                            <a
-                              href={patientMailUrl}
-                              onClick={() => setMenuOpen(false)}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            >
-                              <Mail className="w-3.5 h-3.5 text-slate-400" />
-                              <span>Enviar Correo</span>
-                            </a>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMenuOpen(false);
-                                showToast('El paciente no tiene correo electrónico registrado.', 'warning');
-                              }}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            >
-                              <Mail className="w-3.5 h-3.5" />
-                              <span>Enviar Correo</span>
-                            </button>
-                          )}
-
-                          {patientWhatsApp ? (
-                            <a
-                              href={patientWhatsApp}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={() => setMenuOpen(false)}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            >
-                              <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Enviar Whatsapp</span>
-                            </a>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMenuOpen(false);
-                                showToast('El paciente no tiene teléfono móvil registrado.', 'warning');
-                              }}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              <span>Enviar Whatsapp</span>
-                            </button>
-                          )}
-
-                          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                            Acciones
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMenuOpen(false);
-                              setShowEditModal(true);
-                            }}
-                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
-                          >
-                            <Edit2 className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Editar</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMenuOpen(false);
-                              openConfirm({
-                                title: '¿Eliminar paciente?',
-                                description: `Se eliminará la ficha de "${selectedPatient.fullName}".`,
-                                confirmText: 'Eliminar',
-                                cancelText: 'Cancelar',
-                                isDestructive: true,
-                                onConfirm: () => deletePatient(selectedPatient.id),
-                              });
-                            }}
-                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Eliminar</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {subView === 'cuentas' && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono tabular-nums font-bold px-2.5 py-1 rounded-lg bg-white/15">
-                      Saldo: {formatMoney(patientBalances.balance, activeCurrency)}
-                    </span>
+                  {/* Three-dots Dropdown Menu */}
+                  <div className="relative">
                     <button
+                      ref={menuTriggerRef}
                       type="button"
-                      onClick={handleShareAccountStatement}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/15 hover:bg-white/25 transition-colors"
+                      onClick={() => setMenuOpen((v) => !v)}
+                      aria-expanded={menuOpen}
+                      aria-haspopup="menu"
+                      className={buttonClass({ variant: 'icon', size: 'sm' })}
+                      title="Más opciones"
+                      aria-label="Más opciones"
                     >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">COMPARTIR</span>
+                      <MoreVertical className="w-4 h-4" />
                     </button>
+
+                    <AnchoredDropdown
+                      open={menuOpen}
+                      onClose={() => setMenuOpen(false)}
+                      anchorRef={menuTriggerRef}
+                      preferredWidth={240}
+                      className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl py-1.5 text-xs"
+                    >
+                        <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                          Ver más
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setSubView('citas_pendientes');
+                          }}
+                          className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        >
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Citas Pendientes</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setSubView('historial_citas');
+                          }}
+                          className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        >
+                          <History className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Historial de Citas</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setSubView('trabajos_lab');
+                          }}
+                          className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        >
+                          <FlaskConical className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Trabajos de Laboratorio</span>
+                        </button>
+
+                        <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                        <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                          Contacto
+                        </div>
+                        {patientMailUrl ? (
+                          <a
+                            href={patientMailUrl}
+                            onClick={() => setMenuOpen(false)}
+                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <Mail className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Enviar Correo</span>
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              showToast('El paciente no tiene correo electrónico registrado.', 'warning');
+                            }}
+                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Enviar Correo</span>
+                          </button>
+                        )}
+
+                        {patientWhatsApp ? (
+                          <a
+                            href={patientWhatsApp}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={() => setMenuOpen(false)}
+                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Enviar Whatsapp</span>
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              showToast('El paciente no tiene teléfono móvil registrado.', 'warning');
+                            }}
+                            className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                          >
+                            <WhatsAppIcon className="w-3.5 h-3.5" />
+                            <span>Enviar Whatsapp</span>
+                          </button>
+                        )}
+
+                        <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                        <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+                          Acciones
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setShowShareModal(true);
+                          }}
+                          className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-teal-600" />
+                          <span>Compartir ficha clínica</span>
+                        </button>
+                        {isSharedFromOther ? (
+                          incomingShare && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuOpen(false);
+                                openConfirm({
+                                  title: '¿Desvincular ficha compartida?',
+                                  description: `Dejarás de ver "${selectedPatient.fullName}" y sus evoluciones compartidas en tu consultorio.`,
+                                  confirmText: 'Desvincular',
+                                  cancelText: 'Cancelar',
+                                  isDestructive: true,
+                                  onConfirm: () => unlinkPatientShare(incomingShare.id),
+                                });
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                            >
+                              <Unlink className="w-3.5 h-3.5" />
+                              <span>Desvincular de mi consultorio</span>
+                            </button>
+                          )
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuOpen(false);
+                                setShowEditModal(true);
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Editar</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuOpen(false);
+                                openConfirm({
+                                  title: '¿Eliminar paciente?',
+                                  description: `Se eliminará la ficha de "${selectedPatient.fullName}".`,
+                                  confirmText: 'Eliminar',
+                                  cancelText: 'Cancelar',
+                                  isDestructive: true,
+                                  onConfirm: () => deletePatient(selectedPatient.id),
+                                });
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center gap-2.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Eliminar</span>
+                            </button>
+                          </>
+                        )}
+                    </AnchoredDropdown>
                   </div>
-                )}
+                </>
+              )}
 
-                {subView === 'historia' && (
-                  <button
-                    type="button"
-                    onClick={() => handleStartPatientDictation(selectedPatient)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/15 hover:bg-white/25 transition-colors"
+              {subView === 'cuentas' && (
+                <div className="w-full sm:w-auto flex flex-wrap items-center justify-between sm:justify-end gap-2">
+                  <span className="text-xs font-mono tabular-nums font-bold px-2.5 py-1 rounded-lg bg-white/15">
+                    Saldo: {formatMoney(patientBalances.balance, activeCurrency, showCurrencyCode)}
+                  </span>
+                  <Button
+                    variant="headerGhost"
+                    size="xs"
+                    icon={<Share2 className="w-3.5 h-3.5" />}
+                    onClick={handleShareAccountStatement}
                   >
-                    <Mic className="w-3.5 h-3.5" />
-                    <span>Dictar evolución</span>
-                  </button>
-                )}
-              </div>
-            </div>
+                    <span>Compartir</span>
+                  </Button>
+                </div>
+              )}
 
-            {/* Modal Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+              {subView === 'historia' && (
+                <Button
+                  variant="headerGhost"
+                  size="xs"
+                  icon={<Mic className="w-3.5 h-3.5" />}
+                  onClick={() => handleStartPatientDictation(selectedPatient)}
+                >
+                  Dictar evolución
+                </Button>
+              )}
+            </>
+          }
+        >
               {/* ================================================= */}
               {/* OVERVIEW CARD: Two-column Patient Summary + 6 Buttons */}
               {/* ================================================= */}
               {subView === 'overview' && (
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                  {/* Left Summary Column */}
-                  <div className="md:col-span-6 space-y-5">
+                <div className="space-y-4">
+                  {isSharedFromOther && (
+                    <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-blue-950 dark:text-blue-100">
+                      <div className="flex items-start gap-2">
+                        <Users className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                        <div className="leading-relaxed">
+                          Ficha clínica compartida por{' '}
+                          <strong>{incomingShare?.ownerName || 'un colega'}</strong> ·
+                          Sincronización en tiempo real. Presupuestos y Caja son privados de cada
+                          consultorio.
+                        </div>
+                      </div>
+                      {incomingShare && (
+                        <Button
+                          variant="dangerSoft"
+                          size="xs"
+                          icon={<Unlink className="w-3.5 h-3.5" />}
+                          onClick={() =>
+                            openConfirm({
+                              title: '¿Desvincular ficha compartida?',
+                              description: `Dejarás de ver "${selectedPatient.fullName}" y sus evoluciones compartidas en tu consultorio.`,
+                              confirmText: 'Desvincular',
+                              cancelText: 'Cancelar',
+                              isDestructive: true,
+                              onConfirm: () => unlinkPatientShare(incomingShare.id),
+                            })
+                          }
+                        >
+                          Desvincular
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {!isSharedFromOther && acceptedOutgoingShares.length > 0 && (
+                    <div className="p-3 rounded-xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-200/80 dark:border-teal-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-teal-900 dark:text-teal-100">
+                      <div className="flex items-center gap-2">
+                        <Users className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                        <span>
+                          Compartida en tiempo real con:{' '}
+                          <strong>
+                            {acceptedOutgoingShares
+                              .map((s) => s.recipientName || 'Colega vinculado')
+                              .join(', ')}
+                          </strong>
+                        </span>
+                      </div>
+                      <Button
+                        variant="soft"
+                        size="xs"
+                        onClick={() => setShowShareModal(true)}
+                      >
+                        Gestionar vínculo
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+                    {/* Left Summary Column */}
+                    <div className="md:col-span-6 space-y-5">
                     {/* Avatar + CI + Group */}
                     <div className="flex items-center gap-4">
                       <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden flex items-center justify-center text-slate-400 shrink-0">
@@ -1075,16 +1783,16 @@ export const PatientSearchView: React.FC = () => {
                       )}
 
                       {selectedPatient.email && (
-                        <div className="flex items-center gap-2.5 text-slate-600 dark:text-slate-300 truncate">
-                          <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{selectedPatient.email}</span>
+                        <div className="flex items-start gap-2.5 text-slate-600 dark:text-slate-300">
+                          <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <span className="break-all">{selectedPatient.email}</span>
                         </div>
                       )}
 
                       {selectedPatient.address && (
-                        <div className="flex items-center gap-2.5 text-slate-600 dark:text-slate-300">
-                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span>{selectedPatient.address}</span>
+                        <div className="flex items-start gap-2.5 text-slate-600 dark:text-slate-300">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <span className="break-words">{selectedPatient.address}</span>
                         </div>
                       )}
                     </div>
@@ -1107,7 +1815,7 @@ export const PatientSearchView: React.FC = () => {
                                 {formatBirthDateDisplay(nextAppointment.date)} ·{' '}
                                 {nextAppointment.startTime}
                               </div>
-                              <div className="text-[11px] text-teal-700 dark:text-teal-300 truncate">
+                              <div className="text-[11px] text-teal-700 dark:text-teal-300 break-words leading-snug">
                                 {nextAppointment.procedure}
                               </div>
                             </div>
@@ -1129,13 +1837,15 @@ export const PatientSearchView: React.FC = () => {
                           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                             Próximo Control
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => setShowNextControlModal(true)}
-                            className="text-[11px] font-semibold text-teal-700 dark:text-teal-300 hover:underline"
-                          >
-                            Editar
-                          </button>
+                          {!isSharedFromOther && (
+                            <button
+                              type="button"
+                              onClick={() => setShowNextControlModal(true)}
+                              className="text-[11px] font-semibold text-teal-700 dark:text-teal-300 hover:underline"
+                            >
+                              Editar
+                            </button>
+                          )}
                         </div>
                         <div className="font-mono font-semibold text-slate-800 dark:text-slate-100">
                           {formatBirthDateDisplay(selectedPatient.nextControlDate)}
@@ -1182,25 +1892,25 @@ export const PatientSearchView: React.FC = () => {
 
                   {/* Right Column: The 6 Stacked Action Buttons */}
                   <div className="md:col-span-6 space-y-2.5">
-                    {financeAllowed && (
-                      <button
-                        type="button"
-                        onClick={() => setSubView('cuentas')}
-                        className="w-full px-4 py-3.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm flex items-center justify-between gap-3 transition-colors shadow-xs"
-                      >
-                        <span className="flex items-center gap-3">
-                          <Wallet className="w-4 h-4 shrink-0" />
-                          <span>Cuentas</span>
+                    <button
+                      type="button"
+                      onClick={() => setSubView('cuentas')}
+                      className="w-full px-4 py-3.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm flex items-center justify-between gap-3 transition-colors shadow-xs"
+                    >
+                      <span className="flex items-center gap-3">
+                        <Wallet className="w-4 h-4 shrink-0" />
+                        <span>
+                          {isSharedFromOther ? 'Cuentas (solo tu consultorio)' : 'Cuentas'}
                         </span>
-                        <span className="text-xs font-mono tabular-nums text-teal-100">
-                          {patientBalances.balance > 0
-                            ? formatMoney(patientBalances.balance, activeCurrency)
-                            : patientTransactions.length > 0
-                            ? `${patientTransactions.length} mov.`
-                            : ''}
-                        </span>
-                      </button>
-                    )}
+                      </span>
+                      <span className="text-xs font-mono tabular-nums text-teal-100">
+                        {patientBalances.balance > 0
+                          ? formatMoney(patientBalances.balance, activeCurrency, showCurrencyCode)
+                          : patientTransactions.length > 0
+                          ? `${patientTransactions.length} mov.`
+                          : ''}
+                      </span>
+                    </button>
 
                     <button
                       type="button"
@@ -1227,11 +1937,13 @@ export const PatientSearchView: React.FC = () => {
                         <ImageIcon className="w-4 h-4 shrink-0" />
                         <span>Imágenes y Archivos</span>
                       </span>
-                      {totalPatientAttachmentsCount > 0 && (
+                      {patientFilesLoading ? (
+                        <span className="text-[11px] font-medium text-teal-100">Cargando...</span>
+                      ) : totalPatientAttachmentsCount > 0 ? (
                         <span className="text-xs font-mono tabular-nums text-teal-100">
                           {totalPatientAttachmentsCount}
                         </span>
-                      )}
+                      ) : null}
                     </button>
 
                     <button
@@ -1261,21 +1973,24 @@ export const PatientSearchView: React.FC = () => {
                       </span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setShowNextControlModal(true)}
-                      className="w-full px-4 py-3.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm flex items-center justify-between gap-3 transition-colors shadow-xs"
-                    >
-                      <span className="flex items-center gap-3">
-                        <CalendarCheck className="w-4 h-4 shrink-0" />
-                        <span>Próximo Control</span>
-                      </span>
-                      {selectedPatient.nextControlDate && (
-                        <span className="text-xs font-mono tabular-nums text-teal-100">
-                          {formatBirthDateDisplay(selectedPatient.nextControlDate)}
+                    {!isSharedFromOther && (
+                      <button
+                        type="button"
+                        onClick={() => setShowNextControlModal(true)}
+                        className="w-full px-4 py-3.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm flex items-center justify-between gap-3 transition-colors shadow-xs"
+                      >
+                        <span className="flex items-center gap-3">
+                          <CalendarCheck className="w-4 h-4 shrink-0" />
+                          <span>Próximo Control</span>
                         </span>
-                      )}
-                    </button>
+                        {selectedPatient.nextControlDate && (
+                          <span className="text-xs font-mono tabular-nums text-teal-100">
+                            {formatBirthDateDisplay(selectedPatient.nextControlDate)}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   </div>
                 </div>
               )}
@@ -1286,8 +2001,8 @@ export const PatientSearchView: React.FC = () => {
               {subView === 'cuentas' && (
                 <div className="space-y-4">
                   {/* Top Switcher & Actions */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 no-print">
-                    <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-0.5 text-xs">
+                  <div className="flex flex-wrap items-center justify-center sm:justify-between gap-3 no-print">
+                    <div className="inline-flex flex-wrap justify-center rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-0.5 text-xs max-w-full">
                       <button
                         type="button"
                         onClick={() => setCuentasTab('movimientos')}
@@ -1312,50 +2027,50 @@ export const PatientSearchView: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
+                    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 w-full sm:w-auto">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={<Plus className="w-3.5 h-3.5" />}
                         onClick={() => setTxModalType('payment')}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Registrar pago</span>
-                      </button>
-                      <button
-                        type="button"
+                        Registrar pago
+                      </Button>
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        icon={<Plus className="w-3.5 h-3.5" />}
                         onClick={() => setTxModalType('charge')}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Agregar cargo</span>
-                      </button>
-                      <button
-                        type="button"
+                        Agregar cargo
+                      </Button>
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        icon={<Plus className="w-3.5 h-3.5" />}
                         onClick={() => setShowPlanModal(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Nuevo presupuesto</span>
-                      </button>
+                        Nuevo presupuesto
+                      </Button>
                       {patientBalances.balance > 0 && debtWaUrl && (
                         <a
                           href={debtWaUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800"
+                          className={buttonClass({ variant: 'whatsapp', size: 'sm' })}
                         >
-                          <MessageCircle className="w-3.5 h-3.5" />
+                          <WhatsAppIcon className="w-3.5 h-3.5" />
                           <span>Recordar saldo</span>
                         </a>
                       )}
-                      <button
-                        type="button"
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        icon={<Printer className="w-3.5 h-3.5" />}
                         onClick={() => window.print()}
-                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800"
                       >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>PDF</span>
-                      </button>
+                        PDF
+                      </Button>
                     </div>
                   </div>
 
@@ -1363,25 +2078,25 @@ export const PatientSearchView: React.FC = () => {
                     <>
                       {/* Balance Summary Cards */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                        <div className={kpiCardClass}>
                           <div className="text-[11px] text-slate-500">
-                            Total cargos ({activeCurrency})
+                            {formatCurrencyHeading('Total cargos', activeCurrency, showCurrencyCode)}
                           </div>
                           <div className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100 mt-0.5">
-                            {formatMoney(patientBalances.charged, activeCurrency)}
+                            {formatMoney(patientBalances.charged, activeCurrency, showCurrencyCode)}
                           </div>
                         </div>
-                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                        <div className={kpiCardClass}>
                           <div className="text-[11px] text-slate-500">
-                            Total pagado ({activeCurrency})
+                            {formatCurrencyHeading('Total pagado', activeCurrency, showCurrencyCode)}
                           </div>
                           <div className="text-base font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-0.5">
-                            {formatMoney(patientBalances.paid, activeCurrency)}
+                            {formatMoney(patientBalances.paid, activeCurrency, showCurrencyCode)}
                           </div>
                         </div>
-                        <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60">
+                        <div className={kpiCardClass}>
                           <div className="text-[11px] text-slate-500">
-                            Saldo actual ({activeCurrency})
+                            {formatCurrencyHeading('Saldo actual', activeCurrency, showCurrencyCode)}
                           </div>
                           <div
                             className={`text-base font-bold font-mono tabular-nums mt-0.5 ${
@@ -1390,87 +2105,120 @@ export const PatientSearchView: React.FC = () => {
                                 : 'text-teal-700 dark:text-teal-400'
                             }`}
                           >
-                            {formatMoney(patientBalances.balance, activeCurrency)}
+                            {formatMoney(patientBalances.balance, activeCurrency, showCurrencyCode)}
                           </div>
                         </div>
                       </div>
 
-                      {transactionsWithRunningBalance.length === 0 ? (
-                        <div className="py-12 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 text-xs text-slate-500">
-                          No hay movimientos registrados en la cuenta corriente de este paciente.
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto border border-slate-200/70 dark:border-slate-800 rounded-xl">
-                          <table className="w-full text-xs text-left border-collapse">
-                            <thead className="bg-slate-50 dark:bg-slate-800/70 text-[11px] text-slate-500 border-b border-slate-200/70 dark:border-slate-800">
-                              <tr>
-                                <th className="px-3.5 py-2.5 font-semibold">Fecha</th>
-                                <th className="px-3.5 py-2.5 font-semibold">Concepto / Medio</th>
-                                <th className="px-3.5 py-2.5 font-semibold text-right">Cargo</th>
-                                <th className="px-3.5 py-2.5 font-semibold text-right">Pago</th>
-                                <th className="px-3.5 py-2.5 font-semibold text-right">Saldo</th>
-                                <th className="px-3.5 py-2.5 text-right no-print">Acción</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {transactionsWithRunningBalance.map(({ tx, runningBalance }) => (
-                                <tr
-                                  key={tx.id}
-                                  className={
-                                    tx.type === 'payment'
-                                      ? 'bg-emerald-50/40 dark:bg-emerald-950/10'
-                                      : ''
+                      <DataTable
+                        data={transactionsWithRunningBalance}
+                        getRowKey={({ tx }) => tx.id}
+                        ariaLabel="Movimientos de cuenta corriente"
+                        rowClassName={({ tx }) =>
+                          tx.type === 'payment'
+                            ? '!bg-emerald-50/40 dark:!bg-emerald-950/15'
+                            : ''
+                        }
+                        emptyState={
+                          <div className="py-12 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 text-xs text-slate-500">
+                            No hay movimientos registrados en la cuenta corriente de este paciente.
+                          </div>
+                        }
+                        columns={
+                          [
+                            {
+                              id: 'date',
+                              label: 'Fecha',
+                              sortValue: ({ tx }) => tx.date,
+                              cellClassName:
+                                'font-mono tabular-nums text-slate-500 whitespace-nowrap',
+                              render: ({ tx }) => formatBirthDateDisplay(tx.date),
+                            },
+                            {
+                              id: 'concept',
+                              label: 'Concepto / Medio',
+                              sortValue: ({ tx }) => tx.concept,
+                              render: ({ tx }) => (
+                                <div>
+                                  <div className="font-medium text-slate-900 dark:text-slate-100">
+                                    {tx.concept}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {PAYMENT_METHOD_LABELS[tx.paymentMethod]}
+                                    {tx.receiptNumber ? ` · ${tx.receiptNumber}` : ''}
+                                  </div>
+                                </div>
+                              ),
+                            },
+                            {
+                              id: 'charge',
+                              label: 'Cargo',
+                              align: 'right',
+                              sortValue: ({ tx }) => (tx.type === 'charge' ? tx.amount : 0),
+                              cellClassName:
+                                'font-mono tabular-nums text-slate-700 dark:text-slate-200 whitespace-nowrap',
+                              render: ({ tx }) =>
+                                formatMoney(
+                                  tx.type === 'charge' ? tx.amount : 0,
+                                  activeCurrency,
+                                  showCurrencyCode
+                                ),
+                            },
+                            {
+                              id: 'payment',
+                              label: 'Pago',
+                              align: 'right',
+                              sortValue: ({ tx }) => (tx.type === 'payment' ? tx.amount : 0),
+                              cellClassName:
+                                'font-mono tabular-nums text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap',
+                              render: ({ tx }) =>
+                                formatMoney(
+                                  tx.type === 'payment' ? tx.amount : 0,
+                                  activeCurrency,
+                                  showCurrencyCode
+                                ),
+                            },
+                            {
+                              id: 'runningBalance',
+                              label: 'Saldo',
+                              align: 'right',
+                              sortValue: ({ runningBalance }) => runningBalance,
+                              cellClassName:
+                                'font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap',
+                              render: ({ runningBalance }) =>
+                                formatMoney(runningBalance, activeCurrency, showCurrencyCode),
+                            },
+                            {
+                              id: 'actions',
+                              label: 'Acción',
+                              align: 'right',
+                              sortable: false,
+                              headerClassName: 'no-print',
+                              cellClassName: 'no-print',
+                              render: ({ tx }) => (
+                                <Button
+                                  variant="icon"
+                                  size="xs"
+                                  onClick={() =>
+                                    openConfirm({
+                                      title: '¿Anular movimiento?',
+                                      description: `Se eliminará "${tx.concept}" de la cuenta corriente.`,
+                                      confirmText: 'Anular',
+                                      cancelText: 'Cancelar',
+                                      isDestructive: true,
+                                      onConfirm: () => deleteFinancialTransaction(tx.id),
+                                    })
                                   }
+                                  aria-label="Anular movimiento"
+                                  className="hover:!text-rose-600"
                                 >
-                                  <td className="px-3.5 py-2.5 font-mono tabular-nums text-slate-500 whitespace-nowrap">
-                                    {formatBirthDateDisplay(tx.date)}
-                                  </td>
-                                  <td className="px-3.5 py-2.5">
-                                    <div className="font-medium text-slate-900 dark:text-slate-100">
-                                      {tx.concept}
-                                    </div>
-                                    <div className="text-[11px] text-slate-500">
-                                      {PAYMENT_METHOD_LABELS[tx.paymentMethod]}
-                                      {tx.receiptNumber ? ` · ${tx.receiptNumber}` : ''}
-                                    </div>
-                                  </td>
-                                  <td className="px-3.5 py-2.5 font-mono tabular-nums text-right text-slate-700 dark:text-slate-200">
-                                    {tx.type === 'charge'
-                                      ? formatMoney(tx.amount, activeCurrency)
-                                      : formatMoney(0, activeCurrency)}
-                                  </td>
-                                  <td className="px-3.5 py-2.5 font-mono tabular-nums text-right text-emerald-700 dark:text-emerald-400 font-semibold">
-                                    {tx.type === 'payment'
-                                      ? formatMoney(tx.amount, activeCurrency)
-                                      : formatMoney(0, activeCurrency)}
-                                  </td>
-                                  <td className="px-3.5 py-2.5 font-mono tabular-nums text-right font-bold text-slate-900 dark:text-slate-100">
-                                    {formatMoney(runningBalance, activeCurrency)}
-                                  </td>
-                                  <td className="px-3.5 py-2.5 text-right no-print">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        openConfirm({
-                                          title: '¿Anular movimiento?',
-                                          description: `Se eliminará "${tx.concept}" de la cuenta corriente.`,
-                                          confirmText: 'Anular',
-                                          cancelText: 'Cancelar',
-                                          isDestructive: true,
-                                          onConfirm: () => deleteFinancialTransaction(tx.id),
-                                        })
-                                      }
-                                      className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              ),
+                            },
+                          ] satisfies DataTableColumn<(typeof transactionsWithRunningBalance)[number]>[]
+                        }
+                      />
                     </>
                   ) : patientPlans.length === 0 ? (
                     <div className="py-10 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 text-xs text-slate-500">
@@ -1509,7 +2257,7 @@ export const PatientSearchView: React.FC = () => {
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 no-print">
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Registro cronológico de atenciones, evoluciones firmadas con PIN y dictados de voz.
+                      Registro cronológico de atenciones, evoluciones clínicas y dictados de voz.
                     </p>
                     <button
                       type="button"
@@ -1523,9 +2271,30 @@ export const PatientSearchView: React.FC = () => {
 
                   {showEvolutionForm && (
                     <form
-                      onSubmit={(e) => handleCreateEvolution(e, Boolean(evolPin.trim()))}
+                      onSubmit={handleCreateEvolution}
                       className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3 no-print"
                     >
+                      {evolutionDraftRestored && (
+                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+                          <span>Borrador local de evolución recuperado.</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              clearLocalDraft(`patient_search:evolution:${selectedPatient.id}`);
+                              setDraftDirty(`patient_evolution:${selectedPatient.id}`, null);
+                              setEvolutionDraftRestored(false);
+                              setEvolTooth('');
+                              setEvolProcedure('');
+                              setEvolDescription('');
+                              setShowEvolutionForm(false);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>Descartar</span>
+                          </button>
+                        </div>
+                      )}
                       <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                         <div>
                           <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
@@ -1575,18 +2344,18 @@ export const PatientSearchView: React.FC = () => {
                         <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
                           Detalle clínico de la evolución *
                         </label>
-                        <textarea
-                          rows={3}
+                        <AutoResizeTextarea
+                          minRows={3}
                           value={evolDescription}
                           onChange={(e) => setEvolDescription(e.target.value)}
                           placeholder="Descripción de lo realizado, materiales, indicaciones..."
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                          className="bg-white dark:bg-slate-900"
                           required
                         />
                       </div>
 
                       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                        <div className="flex items-center gap-2 text-[11px]">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px]">
                           <span className="text-slate-500">Color:</span>
                           {HIGHLIGHT_OPTIONS.map((opt) => (
                             <button
@@ -1606,30 +2375,26 @@ export const PatientSearchView: React.FC = () => {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="relative">
-                            <Lock className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input
-                              type="password"
-                              inputMode="numeric"
-                              value={evolPin}
-                              onChange={(e) => setEvolPin(e.target.value)}
-                              placeholder={`PIN (${activeProf?.fullName?.split(' ')[0] || '1234'})`}
-                              className="w-36 pl-8 pr-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono"
-                            />
-                          </div>
-
                           <button
                             type="button"
-                            onClick={(e) => handleCreateEvolution(e, false)}
-                            className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-200/80 dark:bg-slate-700 hover:bg-slate-300"
+                            onClick={() => {
+                              clearLocalDraft(`patient_search:evolution:${selectedPatient.id}`);
+                              setDraftDirty(`patient_evolution:${selectedPatient.id}`, null);
+                              setEvolutionDraftRestored(false);
+                              setEvolTooth('');
+                              setEvolProcedure('');
+                              setEvolDescription('');
+                              setShowEvolutionForm(false);
+                            }}
+                            className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-700"
                           >
-                            Guardar sin firma
+                            Cancelar
                           </button>
                           <button
                             type="submit"
-                            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
+                            className="px-4 py-1.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
                           >
-                            {evolPin.trim() ? 'Firmar con PIN y guardar' : 'Guardar evolución'}
+                            Guardar evolución
                           </button>
                         </div>
                       </div>
@@ -1672,6 +2437,11 @@ export const PatientSearchView: React.FC = () => {
                         const style =
                           HIGHLIGHT_OPTIONS.find((h) => h.id === ev.highlightColor) ||
                           HIGHLIGHT_OPTIONS[0];
+                        const canDeleteEv = canMutateClinicalRecord(
+                          ev,
+                          workspace?.id,
+                          authUserId
+                        );
                         return (
                           <div key={ev.id} className={`p-3.5 text-xs space-y-1 ${style.cardClass}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1691,36 +2461,41 @@ export const PatientSearchView: React.FC = () => {
                               </div>
 
                               <div className="flex items-center gap-2">
-                                {ev.signedWithPin && (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Firmado PIN</span>
+                                {canDeleteEv ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openConfirm({
+                                        title: '¿Eliminar evolución clínica?',
+                                        description: `Se borrará "${ev.procedure}" (${ev.date}).`,
+                                        confirmText: 'Eliminar',
+                                        cancelText: 'Cancelar',
+                                        isDestructive: true,
+                                        onConfirm: () => deleteEvolutionEntry(ev.id),
+                                      })
+                                    }
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded no-print"
+                                    title="Eliminar evolución"
+                                    aria-label="Eliminar evolución"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="p-1 text-slate-400 dark:text-slate-500 no-print"
+                                    title={`Registro protegido de ${ev.professionalName || 'colega'}`}
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
                                   </span>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openConfirm({
-                                      title: '¿Eliminar evolución clínica?',
-                                      description: `Se borrará "${ev.procedure}" (${ev.date}).`,
-                                      confirmText: 'Eliminar',
-                                      cancelText: 'Cancelar',
-                                      isDestructive: true,
-                                      onConfirm: () => deleteEvolutionEntry(ev.id),
-                                    })
-                                  }
-                                  className="p-1 text-slate-400 hover:text-rose-600 rounded no-print"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
                               </div>
                             </div>
                             <p className="text-slate-700 dark:text-slate-300 whitespace-pre-line leading-relaxed pl-4">
                               {ev.description}
                             </p>
                             {ev.professionalName && (
-                              <div className="text-[11px] text-slate-500 pl-4">
-                                Profesional: {ev.professionalName}
+                              <div className="text-[11px] text-slate-500 pl-4 font-medium">
+                                Registrado por: {ev.professionalName}
                               </div>
                             )}
                           </div>
@@ -1737,15 +2512,15 @@ export const PatientSearchView: React.FC = () => {
                       </h3>
                       <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200/70 dark:border-slate-800 rounded-xl overflow-hidden">
                         {patientSessions.map((sess) => (
-                          <button
+                            <button
                             key={sess.id}
                             type="button"
-                            onClick={() => setView('detail', sess.id)}
-                            className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-3 text-xs"
+                            onClick={() => guardNavigation(() => setView('detail', sess.id))}
+                            className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 text-xs"
                           >
                             <span className="flex items-center gap-2 min-w-0">
                               <FileAudio className="w-4 h-4 text-teal-600 shrink-0" />
-                              <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+                              <span className="font-medium text-slate-800 dark:text-slate-200 break-words leading-snug text-left">
                                 {sess.reference || sess.title}
                               </span>
                             </span>
@@ -1766,6 +2541,17 @@ export const PatientSearchView: React.FC = () => {
               {/* ================================================= */}
               {subView === 'archivos' && (
                 <div className="space-y-4">
+                  {patientFilesCloudError && (
+                    <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 space-y-1 no-print">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                        <span>Almacenamiento en la nube requerido</span>
+                      </div>
+                      <p className="text-amber-800 dark:text-amber-300/90 leading-relaxed">
+                        {patientFilesCloudError} Las radiografías y archivos clínicos nunca se guardan localmente en el navegador.
+                      </p>
+                    </div>
+                  )}
                   <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-800 space-y-3 no-print">
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
                       <div className="sm:col-span-4">
@@ -1774,7 +2560,8 @@ export const PatientSearchView: React.FC = () => {
                           onChange={(e) =>
                             setFileCategory(e.target.value as PatientFileCategory)
                           }
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                          disabled={Boolean(patientFilesCloudError)}
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 disabled:opacity-60"
                         >
                           <option value="radiografia">Radiografía / Tomografía</option>
                           <option value="foto_clinica">Fotografía clínica</option>
@@ -1788,8 +2575,9 @@ export const PatientSearchView: React.FC = () => {
                           type="text"
                           value={fileNotes}
                           onChange={(e) => setFileNotes(e.target.value)}
+                          disabled={Boolean(patientFilesCloudError)}
                           placeholder="Nota (ej: Periapical pieza 3.6)"
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
+                          className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 disabled:opacity-60"
                         />
                       </div>
 
@@ -1803,11 +2591,12 @@ export const PatientSearchView: React.FC = () => {
                         />
                         <button
                           type="button"
+                          disabled={Boolean(patientFilesCloudError)}
                           onClick={() => fileInputRef.current?.click()}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Upload className="w-3.5 h-3.5" />
-                          <span>NUEVA IMAGEN</span>
+                          <span>SUBIR A LA NUBE</span>
                         </button>
                       </div>
                     </div>
@@ -1839,15 +2628,23 @@ export const PatientSearchView: React.FC = () => {
                     ))}
                   </div>
 
-                  {patientAttachments.length === 0 ? (
+                  {patientFilesLoading && patientAttachments.length === 0 ? (
+                    <div className="py-14 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 space-y-2.5">
+                      <RotateCw className="w-5 h-5 mx-auto animate-spin text-teal-600" />
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        Cargando radiografías y archivos desde Supabase...
+                      </p>
+                    </div>
+                  ) : patientAttachments.length === 0 ? (
                     <div className="py-14 text-center rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800 space-y-3">
                       <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
                         Este paciente aún no tiene imágenes
                       </p>
                       <button
                         type="button"
+                        disabled={Boolean(patientFilesCloudError)}
                         onClick={() => fileInputRef.current?.click()}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 disabled:opacity-50"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>NUEVA IMAGEN</span>
@@ -1857,6 +2654,11 @@ export const PatientSearchView: React.FC = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                       {patientAttachments.map((file) => {
                         const isImage = file.mimeType.startsWith('image/');
+                        const canDeleteFile = canMutateClinicalRecord(
+                          file,
+                          workspace?.id,
+                          authUserId
+                        );
                         return (
                           <div
                             key={file.id}
@@ -1888,6 +2690,11 @@ export const PatientSearchView: React.FC = () => {
                                 <div className="text-[11px] text-slate-500 font-mono tabular-nums">
                                   {FILE_CATEGORY_LABELS[file.category]} · {file.capturedAt}
                                 </div>
+                                {file.uploadedBy && (
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                    Subido por: {file.uploadedBy}
+                                  </div>
+                                )}
                                 {file.notes && (
                                   <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
                                     {file.notes}
@@ -1904,22 +2711,33 @@ export const PatientSearchView: React.FC = () => {
                                   <ImageIcon className="w-3 h-3" />
                                   <span>Abrir</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openConfirm({
-                                      title: '¿Eliminar archivo local?',
-                                      description: `Se eliminará "${file.name}" del almacenamiento local del navegador.`,
-                                      confirmText: 'Eliminar',
-                                      cancelText: 'Cancelar',
-                                      isDestructive: true,
-                                      onConfirm: () => deletePatientFile(file.id),
-                                    })
-                                  }
-                                  className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                {canDeleteFile ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openConfirm({
+                                        title: '¿Eliminar archivo clínico?',
+                                        description: `Se eliminará "${file.name}" de la ficha del paciente.`,
+                                        confirmText: 'Eliminar',
+                                        cancelText: 'Cancelar',
+                                        isDestructive: true,
+                                        onConfirm: () => deletePatientFile(file.id),
+                                      })
+                                    }
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                                    title="Eliminar archivo"
+                                    aria-label="Eliminar archivo"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="p-1 text-slate-400 dark:text-slate-500"
+                                    title={`Archivo protegido de ${file.uploadedBy || 'colega'}`}
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1935,11 +2753,28 @@ export const PatientSearchView: React.FC = () => {
               {/* ================================================= */}
               {subView === 'cuestionario' && (
                 <div className="space-y-3">
+                  {isSharedFromOther && (
+                    <div className="p-3 rounded-xl bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+                      <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                      <span>
+                        Antecedentes y examen físico base administrados por el consultorio titular.
+                        Podés registrar novedades clínicas en <strong>Historia (Evoluciones)</strong>.
+                      </span>
+                    </div>
+                  )}
                   {/* Accordion 1: Anamnesis */}
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900">
+                  <div
+                    ref={anamnesisRef}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900"
+                  >
                     <button
                       type="button"
-                      onClick={() => setAnamnesisOpen((v) => !v)}
+                      aria-expanded={anamnesisOpen}
+                      onClick={() => {
+                        const next = !anamnesisOpen;
+                        setAnamnesisOpen(next);
+                        if (next) revealExpandedSection(anamnesisRef.current);
+                      }}
                       className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
                       <div>
@@ -1961,6 +2796,26 @@ export const PatientSearchView: React.FC = () => {
 
                     {anamnesisOpen && (
                       <div className="p-4 border-t border-slate-200/70 dark:border-slate-800 space-y-4">
+                        {anamnesisDraftRestored && (
+                          <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+                            <span>Se recuperó un borrador local de anamnesis sin guardar.</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                clearLocalDraft(`patient_search:anamnesis:${selectedPatient.id}`);
+                                setDraftDirty(`patient_anamnesis:${selectedPatient.id}`, null);
+                                setAnamnesisDraftRestored(false);
+                                setAllergiesDraft(selectedPatient.allergies || '');
+                                setMedicalHistoryDraft(selectedPatient.medicalHistory || '');
+                                setMedicationDetailDraft(selectedPatient.anamnesis?.medicationDetail || '');
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 cursor-pointer"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Descartar</span>
+                            </button>
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {ANAMNESIS_LABELS.map((flag) => {
                             const checked = Boolean(selectedPatient.anamnesis?.[flag.key]);
@@ -1972,8 +2827,9 @@ export const PatientSearchView: React.FC = () => {
                                 <input
                                   type="checkbox"
                                   checked={checked}
+                                  disabled={isSharedFromOther}
                                   onChange={() => handleToggleAnamnesisFlag(flag.key)}
-                                  className="accent-teal-600 rounded"
+                                  className="accent-teal-600 rounded disabled:opacity-60"
                                 />
                                 <span>{flag.label}</span>
                               </label>
@@ -1986,24 +2842,26 @@ export const PatientSearchView: React.FC = () => {
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Alergias declaradas
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={allergiesDraft}
+                              disabled={isSharedFromOther}
                               onChange={(e) => setAllergiesDraft(e.target.value)}
                               placeholder="Ej: Penicilina, látex, ninguna"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Detalle de medicación
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={medicationDetailDraft}
+                              disabled={isSharedFromOther}
                               onChange={(e) => setMedicationDetailDraft(e.target.value)}
                               placeholder="Ej: Losartán 50mg/día"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                         </div>
@@ -2012,32 +2870,43 @@ export const PatientSearchView: React.FC = () => {
                           <label className="block text-[11px] font-medium text-slate-500 mb-1">
                             Antecedentes médicos / observaciones
                           </label>
-                          <textarea
-                            rows={2}
+                          <AutoResizeTextarea
+                            minRows={2}
                             value={medicalHistoryDraft}
+                            disabled={isSharedFromOther}
                             onChange={(e) => setMedicalHistoryDraft(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                            className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                           />
                         </div>
 
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            onClick={handleSaveAnamnesisDetails}
-                            className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
-                          >
-                            Guardar Anamnesis
-                          </button>
-                        </div>
+                        {!isSharedFromOther && (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={handleSaveAnamnesisDetails}
+                              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
+                            >
+                              Guardar Anamnesis
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
                   {/* Accordion 2: Examen Físico */}
-                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900">
+                  <div
+                    ref={physicalExamRef}
+                    className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900"
+                  >
                     <button
                       type="button"
-                      onClick={() => setPhysicalExamOpen((v) => !v)}
+                      aria-expanded={physicalExamOpen}
+                      onClick={() => {
+                        const next = !physicalExamOpen;
+                        setPhysicalExamOpen(next);
+                        if (next) revealExpandedSection(physicalExamRef.current);
+                      }}
                       className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
                     >
                       <div>
@@ -2064,89 +2933,113 @@ export const PatientSearchView: React.FC = () => {
                         onSubmit={handleSavePhysicalExam}
                         className="p-4 border-t border-slate-200/70 dark:border-slate-800 space-y-3 text-xs"
                       >
+                        {physicalDraftRestored && (
+                          <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+                            <span>Se recuperó un borrador local del examen físico.</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                clearLocalDraft(`patient_search:physical:${selectedPatient.id}`);
+                                setDraftDirty(`patient_physical:${selectedPatient.id}`, null);
+                                setPhysicalDraftRestored(false);
+                                setPhysicalDraft(selectedPatient.physicalExam || {});
+                              }}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 cursor-pointer"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Descartar</span>
+                            </button>
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Presión arterial / Signos vitales
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={physicalDraft.bloodPressure || ''}
+                              disabled={isSharedFromOther}
                               onChange={(e) =>
                                 setPhysicalDraft({ ...physicalDraft, bloodPressure: e.target.value })
                               }
                               placeholder="Ej: 120/80 mmHg"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Higiene oral
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={physicalDraft.oralHygiene || ''}
+                              disabled={isSharedFromOther}
                               onChange={(e) =>
                                 setPhysicalDraft({ ...physicalDraft, oralHygiene: e.target.value })
                               }
                               placeholder="Buena / Regular / Deficiente"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Mucosa oral y encías
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={physicalDraft.mucosa || ''}
+                              disabled={isSharedFromOther}
                               onChange={(e) =>
                                 setPhysicalDraft({ ...physicalDraft, mucosa: e.target.value })
                               }
                               placeholder="Ej: Rosada, sin lesiones"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Ganglios y cuello
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={physicalDraft.lymphNodes || ''}
+                              disabled={isSharedFromOther}
                               onChange={(e) =>
                                 setPhysicalDraft({ ...physicalDraft, lymphNodes: e.target.value })
                               }
                               placeholder="Ej: Sin adenopatías palpables"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               ATM (Articulación temporomandibular)
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={physicalDraft.tmj || ''}
+                              disabled={isSharedFromOther}
                               onChange={(e) =>
                                 setPhysicalDraft({ ...physicalDraft, tmj: e.target.value })
                               }
                               placeholder="Ej: Apertura normal, sin ruidos ni dolor"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-500 mb-1">
                               Oclusión
                             </label>
-                            <input
-                              type="text"
+                            <AutoResizeTextarea
+                              minRows={1}
                               value={physicalDraft.occlusion || ''}
+                              disabled={isSharedFromOther}
                               onChange={(e) =>
                                 setPhysicalDraft({ ...physicalDraft, occlusion: e.target.value })
                               }
                               placeholder="Ej: Normoclusión / Desgaste anterior"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                              className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                             />
                           </div>
                         </div>
@@ -2155,24 +3048,27 @@ export const PatientSearchView: React.FC = () => {
                           <label className="block text-[11px] font-medium text-slate-500 mb-1">
                             Observaciones del examen físico
                           </label>
-                          <textarea
-                            rows={2}
+                          <AutoResizeTextarea
+                            minRows={2}
                             value={physicalDraft.observations || ''}
+                            disabled={isSharedFromOther}
                             onChange={(e) =>
                               setPhysicalDraft({ ...physicalDraft, observations: e.target.value })
                             }
-                            className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                            className="bg-slate-50 dark:bg-slate-800 disabled:opacity-70"
                           />
                         </div>
 
-                        <div className="flex justify-end">
-                          <button
-                            type="submit"
-                            className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
-                          >
-                            Guardar Examen Físico
-                          </button>
-                        </div>
+                        {!isSharedFromOther && (
+                          <div className="flex justify-end">
+                            <button
+                              type="submit"
+                              className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
+                            >
+                              Guardar Examen Físico
+                            </button>
+                          </div>
+                        )}
                       </form>
                     )}
                   </div>
@@ -2180,47 +3076,13 @@ export const PatientSearchView: React.FC = () => {
               )}
 
               {/* ================================================= */}
-              {/* SUB-VIEW 5: ODONTOGRAMA Y PERIODONTOGRAMA         */}
+              {/* SUB-VIEW 5: ODONTOGRAMA                           */}
               {/* ================================================= */}
               {subView === 'odontograma' && (
-                <div className="space-y-4">
-                  <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 p-0.5 text-xs no-print">
-                    <button
-                      type="button"
-                      onClick={() => setChartSubTab('odontogram')}
-                      className={`px-3.5 py-1.5 rounded-lg font-semibold transition-colors ${
-                        chartSubTab === 'odontogram'
-                          ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                      }`}
-                    >
-                      Odontograma FDI interactivo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChartSubTab('periodontogram')}
-                      className={`px-3.5 py-1.5 rounded-lg font-semibold transition-colors ${
-                        chartSubTab === 'periodontogram'
-                          ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                      }`}
-                    >
-                      Periodontograma
-                    </button>
-                  </div>
-
-                  {chartSubTab === 'odontogram' ? (
-                    <OdontogramPanel
-                      patientId={selectedPatient.id}
-                      patientName={selectedPatient.fullName}
-                    />
-                  ) : (
-                    <PeriodontogramPanel
-                      patientId={selectedPatient.id}
-                      patientName={selectedPatient.fullName}
-                    />
-                  )}
-                </div>
+                <OdontogramPanel
+                  patientId={selectedPatient.id}
+                  patientName={selectedPatient.fullName}
+                />
               )}
 
               {/* ================================================= */}
@@ -2228,7 +3090,7 @@ export const PatientSearchView: React.FC = () => {
               {/* ================================================= */}
               {(subView === 'citas_pendientes' || subView === 'historial_citas') && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs text-slate-500">
                       {subView === 'citas_pendientes'
                         ? 'Turnos próximos y pendientes de atención para este paciente.'
@@ -2236,10 +3098,12 @@ export const PatientSearchView: React.FC = () => {
                     </p>
                     <button
                       type="button"
-                      onClick={() => {
-                        selectPatient(null);
-                        setView('agenda');
-                      }}
+                      onClick={() =>
+                        guardNavigation(() => {
+                          selectPatient(null);
+                          setView('agenda');
+                        })
+                      }
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
                     >
                       <CalendarPlus className="w-3.5 h-3.5" />
@@ -2312,6 +3176,21 @@ export const PatientSearchView: React.FC = () => {
                                     )
                                   )}
                                 </select>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    guardNavigation(() => {
+                                      setAgendaDate(appt.date);
+                                      selectPatient(null);
+                                      setView('agenda');
+                                    })
+                                  }
+                                  className={buttonClass({ variant: 'soft', size: 'xs' })}
+                                  title="Ver este día en Agenda"
+                                >
+                                  <Calendar className="w-3.5 h-3.5" />
+                                  <span>Ver en Agenda</span>
+                                </button>
                                 {waConfirm && (
                                   <a
                                     href={waConfirm}
@@ -2320,7 +3199,7 @@ export const PatientSearchView: React.FC = () => {
                                     className="p-1.5 rounded-lg text-emerald-700 bg-emerald-50 dark:bg-emerald-950/50"
                                     title="Confirmar por WhatsApp"
                                   >
-                                    <MessageCircle className="w-3.5 h-3.5" />
+                                    <WhatsAppIcon className="w-3.5 h-3.5" />
                                   </a>
                                 )}
                                 <a
@@ -2355,21 +3234,33 @@ export const PatientSearchView: React.FC = () => {
               {/* ================================================= */}
               {subView === 'trabajos_lab' && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-xs text-slate-500">
                       Órdenes protésicas y trabajos externos vinculados a {selectedPatient.fullName}.
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        selectPatient(null);
-                        setView('lab');
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
-                    >
-                      <FlaskConical className="w-3.5 h-3.5" />
-                      <span>Ir a Laboratorio</span>
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 w-full sm:w-auto">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          guardNavigation(() => {
+                            selectPatient(null);
+                            setView('lab');
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+                      >
+                        <FlaskConical className="w-3.5 h-3.5" />
+                        <span>Ver módulo completo</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowLabModal(true)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Nueva orden</span>
+                      </button>
+                    </div>
                   </div>
 
                   {patientLabOrders.length === 0 ? (
@@ -2381,30 +3272,93 @@ export const PatientSearchView: React.FC = () => {
                       {patientLabOrders.map((order) => (
                         <div
                           key={order.id}
-                          className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                          onClick={() => setViewingPatientLabOrderId(order.id)}
+                          className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs cursor-pointer hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
                         >
-                          <div className="space-y-0.5">
+                          <div className="space-y-1 min-w-0">
                             <div className="font-semibold text-slate-900 dark:text-slate-100">
                               {order.workType}
                               {order.toothFdi ? ` · Pieza ${order.toothFdi}` : ''}
                             </div>
                             <div className="text-[11px] text-slate-500">
-                              {order.providerName || 'Laboratorio'}
+                              {order.providerName || 'Laboratorio sin asignar'}
                               {order.shade ? ` · Color ${order.shade}` : ''}
                               {order.dueDate
-                                ? ` · Entrega: ${formatBirthDateDisplay(order.dueDate)}`
+                                ? ` · Entrega est.: ${formatBirthDateDisplay(order.dueDate)}`
                                 : ''}
                             </div>
+                            {(order.sentDate || order.receivedDate) && (
+                              <div className="text-[11px] text-slate-400 font-mono tabular-nums">
+                                {order.sentDate ? `Envío: ${formatBirthDateDisplay(order.sentDate)}` : ''}
+                                {order.sentDate && order.receivedDate ? ' · ' : ''}
+                                {order.receivedDate ? `Recepción: ${formatBirthDateDisplay(order.receivedDate)}` : ''}
+                              </div>
+                            )}
+                            {order.notes && (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg">
+                                {order.notes}
+                              </p>
+                            )}
                           </div>
-                          <div className="flex items-center gap-3 shrink-0">
+                          <div
+                            className="flex flex-wrap items-center gap-2 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             {typeof order.cost === 'number' && order.cost > 0 && (
-                              <span className="font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-200">
-                                {formatMoney(order.cost, activeCurrency)}
+                              <span className="font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-200 mr-1">
+                                {formatMoney(order.cost, activeCurrency, showCurrencyCode)}
                               </span>
                             )}
-                            <span className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                              {LAB_STATUS_LABELS[order.status]}
-                            </span>
+                            <select
+                              value={order.status}
+                              onChange={(e) =>
+                                updateLabOrderStatus(order.id, e.target.value as LabOrderStatus)
+                              }
+                              aria-label={`Estado de ${order.workType}`}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 cursor-pointer"
+                            >
+                              {Object.entries(LAB_STATUS_LABELS).map(([val, label]) => (
+                                <option key={val} value={val}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => setViewingPatientLabOrderId(order.id)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              title="Ver detalle"
+                              aria-label={`Ver detalle de ${order.workType}`}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingPatientLabOrder(order)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+                              title="Editar orden"
+                              aria-label={`Editar orden ${order.workType}`}
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openConfirm({
+                                  title: '¿Eliminar orden de laboratorio?',
+                                  description: `Se eliminará "${order.workType}" de ${selectedPatient.fullName}.`,
+                                  confirmText: 'Eliminar',
+                                  cancelText: 'Cancelar',
+                                  isDestructive: true,
+                                  onConfirm: () => deleteLabOrder(order.id),
+                                })
+                              }
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                              title="Eliminar orden"
+                              aria-label={`Eliminar orden ${order.workType}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -2412,15 +3366,17 @@ export const PatientSearchView: React.FC = () => {
                   )}
                 </div>
               )}
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* =================================================== */}
       {/* IN-PLACE MODALS (Editar Paciente, Próximo Control,  */}
       {/* Nuevo Presupuesto, Cargo/Pago, Preview Archivo)     */}
       {/* =================================================== */}
+      {showShareModal && selectedPatient && (
+        <SharePatientModal patient={selectedPatient} onClose={() => setShowShareModal(false)} />
+      )}
+
       {showEditModal && selectedPatient && (
         <PatientEditModal patient={selectedPatient} onClose={() => setShowEditModal(false)} />
       )}
@@ -2447,53 +3403,62 @@ export const PatientSearchView: React.FC = () => {
         />
       )}
 
+      {viewingPatientLabOrder && selectedPatient && (
+        <LabOrderDetailModal
+          order={viewingPatientLabOrder}
+          onClose={() => setViewingPatientLabOrderId(null)}
+          onEdit={(orderToEdit) => {
+            setViewingPatientLabOrderId(null);
+            setEditingPatientLabOrder(orderToEdit);
+          }}
+        />
+      )}
+
+      {(showLabModal || editingPatientLabOrder) && selectedPatient && (
+        <LabOrderModal
+          order={editingPatientLabOrder}
+          lockedPatient={{ id: selectedPatient.id, fullName: selectedPatient.fullName }}
+          onClose={() => {
+            setShowLabModal(false);
+            setEditingPatientLabOrder(null);
+          }}
+        />
+      )}
+
       {previewFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="w-full max-w-3xl max-h-[90vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
-            <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                  {previewFile.name}
-                </div>
-                <div className="text-[11px] text-slate-500 font-mono">
-                  {FILE_CATEGORY_LABELS[previewFile.category]} · {previewFile.capturedAt}
-                  {previewFile.notes ? ` · ${previewFile.notes}` : ''}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <a
-                  href={previewFile.dataUrl}
-                  download={previewFile.name}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60"
-                >
-                  Descargar
-                </a>
-                <button
-                  type="button"
-                  onClick={() => setPreviewFile(null)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 overflow-auto p-4 bg-slate-950 flex items-center justify-center">
-              {previewFile.mimeType.startsWith('image/') ? (
-                <img
-                  src={previewFile.dataUrl}
-                  alt={previewFile.name}
-                  className="max-w-full max-h-[75vh] object-contain"
-                />
-              ) : (
-                <iframe
-                  src={previewFile.dataUrl}
-                  title={previewFile.name}
-                  className="w-full h-[72vh] bg-white rounded-lg"
-                />
-              )}
-            </div>
-          </div>
-        </div>
+        <Modal
+          onClose={() => setPreviewFile(null)}
+          size="3xl"
+          title={previewFile.name}
+          subtitle={`${FILE_CATEGORY_LABELS[previewFile.category]} · ${previewFile.capturedAt}${
+            previewFile.notes ? ` · ${previewFile.notes}` : ''
+          }`}
+          bodyClassName="p-4 bg-slate-950 flex items-center justify-center"
+          headerActions={
+            <a
+              href={previewFile.dataUrl}
+              download={previewFile.name}
+              className={buttonClass({ variant: 'soft', size: 'xs' })}
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Descargar</span>
+            </a>
+          }
+        >
+          {previewFile.mimeType.startsWith('image/') ? (
+            <img
+              src={previewFile.dataUrl}
+              alt={previewFile.name}
+              className="max-w-full max-h-[75vh] object-contain"
+            />
+          ) : (
+            <iframe
+              src={previewFile.dataUrl}
+              title={previewFile.name}
+              className="w-full h-[65vh] sm:h-[72vh] bg-white rounded-lg"
+            />
+          )}
+        </Modal>
       )}
     </div>
   );

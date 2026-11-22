@@ -17,23 +17,45 @@ import {
   CheckCircle2,
   CloudDownload,
   LogOut,
-  UserCog,
-  ShieldCheck,
-  Lock,
   Coins,
-  DatabaseZap,
+  Cloud,
+  Landmark,
+  Lock,
+  User,
 } from 'lucide-react';
+import {
+  buildWorkspaceTransferCode,
+  evaluateSubscriptionStatus,
+  getCycleDisplayLabel,
+  getTierDisplayLabel,
+} from '../core/clinic/subscriptionPlans';
+import { resolveCloudAudioCapability } from '../core/audio/cloudAudioSync';
 import {
   CURRENCY_OPTIONS,
   DEFAULT_CURRENCY,
+  downloadTextFile,
   formatMoney,
   getCurrencyMeta,
 } from '../core/clinic/clinicHelpers';
+import {
+  getOrCreateLocalDeviceInfo,
+  setCustomLocalDeviceLabel,
+} from '../core/runtime/deviceIdentity';
 import { getDefaultModelTier, getTauriBridge, isTauriDesktop } from '../core/runtime/platform';
 import { NativeCapabilitiesResponse } from '../core/transcription/tauriEngine';
 import { detectHardwareCapabilities, HardwareCapabilities } from '../core/transcription/tierDetector';
-import { ClinicRole, CurrencyCode, ModelTier } from '../core/types';
+import { CurrencyCode, ModelTier } from '../core/types';
 import { useAppStore } from '../store/useAppStore';
+import { Button } from './ui/Button';
+import {
+  cardClass,
+  inputClass,
+  labelCompactClass,
+  pageContainerNarrowClass,
+  pageSubtitleClass,
+  pageTitleClass,
+  selectClass,
+} from './ui/uiClasses';
 
 export const SettingsView: React.FC = () => {
   const {
@@ -43,27 +65,28 @@ export const SettingsView: React.FC = () => {
     addGlossaryEntry,
     removeGlossaryEntry,
     storageUsage,
+    sessions,
+    localAudioAvailability,
     clearTranscribedAudioAll,
-    clearAllData,
+    clearAllLocalAudio,
     openConfirm,
     showToast,
     modelCacheStatuses,
     downloadingModelTier,
     modelDownloadProgress,
     downloadModelForOffline,
-    exportLocalBackup,
-    importLocalBackup,
     exportGlossaryBackup,
     importGlossaryBackup,
     authEmail,
     signOutSupabase,
     professionals,
     activeProfessionalId,
-    setActiveProfessional,
-    createProfessional,
-    updateProfessional,
-    deleteProfessional,
-    seedDemoData,
+    profile,
+    updatePersonalPractitioner,
+    workspace,
+    workspaceSubscription,
+    transferRequests,
+    openTransferModal,
   } = useAppStore();
 
   const runningDesktop = isTauriDesktop();
@@ -73,26 +96,28 @@ export const SettingsView: React.FC = () => {
   const [newCorrect, setNewCorrect] = useState('');
   const [isAddingGlossary, setIsAddingGlossary] = useState(false);
 
-  // Team & PIN state
-  const [showAddProf, setShowAddProf] = useState(false);
-  const [profName, setProfName] = useState('');
-  const [profSpecialty, setProfSpecialty] = useState('Odontología General');
-  const [profLicense, setProfLicense] = useState('');
-  const [profRole, setProfRole] = useState<ClinicRole>('odontologo');
-  const [profPin, setProfPin] = useState('1234');
-  const [profColor, setProfColor] = useState('#0d9488');
-  const [profCanFinance, setProfCanFinance] = useState(true);
-  const [editingPinId, setEditingPinId] = useState<string | null>(null);
-  const [editingPinValue, setEditingPinValue] = useState('');
+  const activePractitioner =
+    professionals.find((p) => p.id === activeProfessionalId) || professionals[0];
+  const [practitionerName, setPractitionerName] = useState(
+    activePractitioner?.fullName || profile?.fullName || ''
+  );
+  const [practitionerSpecialty, setPractitionerSpecialty] = useState(
+    activePractitioner?.specialty || 'Odontología General'
+  );
+  const [practitionerLicense, setPractitionerLicense] = useState(
+    activePractitioner?.licenseNumber || ''
+  );
+  const [savingPractitioner, setSavingPractitioner] = useState(false);
 
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [isTestingMic, setIsTestingMic] = useState(false);
   const [testVuLevel, setTestVuLevel] = useState(0);
+  const [deviceInfo, setDeviceInfo] = useState(() => getOrCreateLocalDeviceInfo());
+  const [deviceLabelInput, setDeviceLabelInput] = useState(() => getOrCreateLocalDeviceInfo().deviceLabel);
 
   const testStreamRef = useRef<MediaStream | null>(null);
   const testContextRef = useRef<AudioContext | null>(null);
   const testAnimFrameRef = useRef<number | null>(null);
-  const backupInputRef = useRef<HTMLInputElement | null>(null);
   const glossaryInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadAudioDevices = async () => {
@@ -128,6 +153,36 @@ export const SettingsView: React.FC = () => {
       stopMicTest();
     };
   }, []);
+
+  useEffect(() => {
+    setPractitionerName(activePractitioner?.fullName || profile?.fullName || '');
+    setPractitionerSpecialty(activePractitioner?.specialty || 'Odontología General');
+    setPractitionerLicense(activePractitioner?.licenseNumber || '');
+  }, [
+    activePractitioner?.id,
+    activePractitioner?.fullName,
+    activePractitioner?.specialty,
+    activePractitioner?.licenseNumber,
+    profile?.fullName,
+  ]);
+
+  const handleSavePractitioner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!practitionerName.trim()) {
+      showToast('Ingresá tu nombre y apellido profesional.', 'warning');
+      return;
+    }
+    setSavingPractitioner(true);
+    try {
+      await updatePersonalPractitioner({
+        fullName: practitionerName.trim(),
+        specialty: practitionerSpecialty.trim() || undefined,
+        licenseNumber: practitionerLicense.trim() || undefined,
+      });
+    } finally {
+      setSavingPractitioner(false);
+    }
+  };
 
   const handleRefreshDevices = async () => {
     try {
@@ -246,46 +301,10 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const triggerDownload = (filename: string, content: string) => {
-    const blob = new Blob([content], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportBackup = async () => {
-    try {
-      const json = await exportLocalBackup();
-      const dateTag = new Date().toISOString().slice(0, 10);
-      triggerDownload(`escriba_respaldo_${dateTag}.json`, json);
-      showToast('Respaldo local exportado', 'success');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al exportar respaldo';
-      showToast(msg, 'warning');
-    }
-  };
-
-  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const text = await file.text();
-      await importLocalBackup(text);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error al importar respaldo';
-      showToast(msg, 'warning');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
   const handleExportGlossary = () => {
     const json = exportGlossaryBackup();
     const dateTag = new Date().toISOString().slice(0, 10);
-    triggerDownload(`escriba_glosario_${dateTag}.json`, json);
+    downloadTextFile(`odontohelper_glosario_${dateTag}.json`, json, 'application/json');
     showToast('Glosario dental exportado', 'success');
   };
 
@@ -303,352 +322,220 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleAddProfessionalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profName.trim()) {
-      showToast('Ingresá el nombre completo del profesional.', 'warning');
-      return;
-    }
-    await createProfessional({
-      fullName: profName.trim(),
-      specialty: profSpecialty.trim() || undefined,
-      licenseNumber: profLicense.trim() || undefined,
-      role: profRole,
-      agendaColor: profColor,
-      pinCode: profPin.trim() || '1234',
-      canViewFinance: profRole === 'owner' ? true : profCanFinance,
-      active: true,
-    });
-    setProfName('');
-    setProfLicense('');
-    setProfPin('1234');
-    setShowAddProf(false);
-  };
-
-  const ROLE_LABELS: Record<ClinicRole, string> = {
-    owner: 'Titular / Dirección',
-    odontologo: 'Odontólogo',
-    secretaria: 'Secretaría / Recepción',
-    asistente: 'Asistente dental',
-  };
-
-  const AGENDA_COLORS = ['#0d9488', '#2563eb', '#d97706', '#e11d48', '#7c3aed'];
-
   const usedMb = Math.round(storageUsage.usedBytes / (1024 * 1024));
   const totalMb = Math.round(storageUsage.quotaBytes / (1024 * 1024));
+  const localAudioCount = sessions.filter((s) => localAudioAvailability[s.id]).length;
+  const transcribedLocalAudioCount = sessions.filter(
+    (s) => s.status === 'completed' && localAudioAvailability[s.id]
+  ).length;
+  const cloudAudioCap = resolveCloudAudioCapability(settings);
+
+  const handleSaveDeviceLabel = (e: React.FormEvent) => {
+    e.preventDefault();
+    const updated = setCustomLocalDeviceLabel(deviceLabelInput);
+    setDeviceInfo(updated);
+    setDeviceLabelInput(updated.deviceLabel);
+    showToast(`Nombre del dispositivo guardado: ${updated.deviceLabel}`, 'success');
+  };
+
+  const handleResetDeviceLabel = () => {
+    const updated = setCustomLocalDeviceLabel('');
+    setDeviceInfo(updated);
+    setDeviceLabelInput(updated.deviceLabel);
+    showToast('Nombre del dispositivo restablecido al detectado automáticamente', 'info');
+  };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+    <div className={`${pageContainerNarrowClass} py-8 space-y-8`}>
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          Ajustes del sistema
+        <h1 className={pageTitleClass}>
+          Configuración
         </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          Configuración local del motor de transcripción, disponibilidad sin internet, glosario odontológico y respaldos.
+        <p className={pageSubtitleClass}>
+          Moneda del consultorio, apariencia visual, ajustes del dictado por voz y almacenamiento local de audios.
         </p>
       </div>
 
       {authEmail && (
-        <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+        <section className={`${cardClass} p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+          <div className="space-y-0.5 min-w-0">
+            <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 break-words">
               Cuenta conectada: {authEmail}
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Tus fichas clínicas, pacientes y agenda se guardan en la nube (Supabase / Neon). El audio y Whisper corren solo en tu navegador.
+              {authEmail === 'drtest'
+                ? 'Sesión de prueba local activa (drtest). Los datos de demostración, el audio y Whisper corren localmente en tu navegador.'
+                : 'Tus fichas clínicas, pacientes, radiografías y agenda se guardan en Supabase. El audio y Whisper corren solo en tu navegador.'}
             </p>
           </div>
-          <button
-            type="button"
+          <Button
+            variant="subtle"
+            size="sm"
+            icon={<LogOut className="w-3.5 h-3.5" />}
+            className="w-full sm:w-auto justify-center"
             onClick={() => signOutSupabase()}
-            className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[38px]"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Cerrar sesión</span>
-          </button>
+            Cerrar sesión
+          </Button>
         </section>
       )}
 
-      {/* Section 0: Equipo profesional, roles y PIN de firma clínica */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
-              <UserCog className="w-5 h-5" />
+      {/* Section 0: Plan, Prueba Gratuita y Suscripción por Transferencia */}
+      {(() => {
+        const subEval = evaluateSubscriptionStatus(workspaceSubscription);
+        const targetTier = subEval.tier === 'trial' ? 'base' : subEval.tier;
+        const statusToneClass =
+          subEval.alertLevel === 'expired'
+            ? 'bg-rose-50/70 dark:bg-rose-950/35 border-rose-200 dark:border-rose-800/70 text-rose-900 dark:text-rose-100'
+            : subEval.alertLevel === 'critical' || subEval.alertLevel === 'warning'
+            ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/70 text-amber-950 dark:text-amber-100'
+            : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200/80 dark:border-slate-700/70 text-slate-800 dark:text-slate-200';
+        const transferCode = workspace ? buildWorkspaceTransferCode(workspace.id) : 'OH-CONSULTORIO';
+
+        return (
+          <section className={`${cardClass} p-4 sm:p-6 space-y-4`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400 shrink-0">
+                  <Landmark className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Plan, vigencia y pago por transferencia
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Avisos automáticos de vencimiento en todos los planes · Código de referencia:{' '}
+                    <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                      {transferCode}
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Landmark className="w-3.5 h-3.5" />}
+                onClick={() => openTransferModal(targetTier, subEval.billingCycle)}
+                className="w-full sm:w-auto justify-center"
+              >
+                {subEval.isTrial ? 'Activar plan por transferencia' : 'Renovar o cambiar plan'}
+              </Button>
             </div>
+
+            <div className={`p-4 rounded-2xl border space-y-1.5 ${statusToneClass}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold tabular-nums">{subEval.headline}</span>
+                <span className="text-[11px] font-mono font-semibold">
+                  {subEval.tierLabel} · {getCycleDisplayLabel(subEval.billingCycle)}
+                </span>
+              </div>
+              <p className="text-[11px] opacity-85 leading-relaxed">{subEval.description}</p>
+            </div>
+
+            {transferRequests.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                  Últimos avisos de transferencia informados
+                </div>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200/70 dark:border-slate-800">
+                  {transferRequests.slice(0, 4).map((req) => (
+                    <div
+                      key={req.id}
+                      className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
+                          {getTierDisplayLabel(req.requestedTier)} ({getCycleDisplayLabel(req.billingCycle)})
+                        </span>
+                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">
+                          {req.bankName} · Ref <span className="font-mono">{req.transferReference}</span>
+                        </span>
+                      </div>
+                      <div className="text-right tabular-nums">
+                        <div className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                          USD {req.amountUsd}
+                        </div>
+                        <div className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                          {req.status === 'approved'
+                            ? 'Aprobada'
+                            : req.status === 'rejected'
+                            ? 'Revisar'
+                            : 'En verificación'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
+      {/* Section 0a: Perfil profesional personal (Uso individual) */}
+      <section className={`${cardClass} p-4 sm:p-6 space-y-4`}>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
+            <User className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Perfil profesional personal
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Tus datos como odontólogo titular para historias clínicas, presupuestos y encabezados de reportes.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSavePractitioner} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2">
+              <label className={labelCompactClass}>Nombre y apellido del odontólogo *</label>
+              <input
+                type="text"
+                required
+                value={practitionerName}
+                onChange={(e) => setPractitionerName(e.target.value)}
+                placeholder="Ej: Dra. Sofía Martínez"
+                className={`${inputClass} bg-white dark:bg-slate-900`}
+              />
+            </div>
+
             <div>
-              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Equipo profesional, roles y PIN de firma clínica
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Configurá profesionales de agenda, permisos de acceso a Caja/Reportes y PIN numérico para firmar evoluciones.
-              </p>
+              <label className={labelCompactClass}>Especialidad</label>
+              <input
+                type="text"
+                value={practitionerSpecialty}
+                onChange={(e) => setPractitionerSpecialty(e.target.value)}
+                placeholder="Odontología General"
+                className={`${inputClass} bg-white dark:bg-slate-900`}
+              />
+            </div>
+
+            <div>
+              <label className={labelCompactClass}>Matrícula profesional (opcional)</label>
+              <input
+                type="text"
+                value={practitionerLicense}
+                onChange={(e) => setPractitionerLicense(e.target.value)}
+                placeholder="Ej: MP 4521 / CJPPU"
+                className={`${inputClass} bg-white dark:bg-slate-900 font-mono`}
+              />
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowAddProf((v) => !v)}
-            className="self-start sm:self-auto flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950 hover:bg-teal-100 dark:hover:bg-teal-900/60 transition-colors min-h-[38px]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Agregar profesional</span>
-          </button>
-        </div>
-
-        {showAddProf && (
-          <form
-            onSubmit={handleAddProfessionalSubmit}
-            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Nombre completo *
-                </label>
-                <input
-                  type="text"
-                  value={profName}
-                  onChange={(e) => setProfName(e.target.value)}
-                  placeholder="Dra. Valentina Gómez"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Especialidad
-                </label>
-                <input
-                  type="text"
-                  value={profSpecialty}
-                  onChange={(e) => setProfSpecialty(e.target.value)}
-                  placeholder="Endodoncia / Ortodoncia"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Matrícula
-                </label>
-                <input
-                  type="text"
-                  value={profLicense}
-                  onChange={(e) => setProfLicense(e.target.value)}
-                  placeholder="MN 45890"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Rol en el consultorio
-                </label>
-                <select
-                  value={profRole}
-                  onChange={(e) => {
-                    const nextRole = e.target.value as ClinicRole;
-                    setProfRole(nextRole);
-                    if (nextRole === 'owner') setProfCanFinance(true);
-                  }}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
-                >
-                  <option value="odontologo">Odontólogo</option>
-                  <option value="secretaria">Secretaría / Recepción</option>
-                  <option value="asistente">Asistente dental</option>
-                  <option value="owner">Titular / Dirección</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  PIN de firma clínica
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={profPin}
-                  onChange={(e) => setProfPin(e.target.value)}
-                  placeholder="1234"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono"
-                />
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pb-1">
-                <div className="flex items-center gap-1.5">
-                  {AGENDA_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setProfColor(c)}
-                      className={`w-5 h-5 rounded-full border-2 transition-transform ${
-                        profColor === c ? 'border-slate-900 dark:border-white scale-110' : 'border-transparent'
-                      }`}
-                      style={{ backgroundColor: c }}
-                      aria-label={`Color ${c}`}
-                    />
-                  ))}
-                </div>
-
-                <label className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={profRole === 'owner' ? true : profCanFinance}
-                    disabled={profRole === 'owner'}
-                    onChange={(e) => setProfCanFinance(e.target.checked)}
-                    className="rounded border-slate-300 text-teal-600"
-                  />
-                  <span>Acceso a Caja/Reportes</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowAddProf(false)}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700"
-              >
-                Guardar profesional
-              </button>
-            </div>
-          </form>
-        )}
-
-        <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-2xl border border-slate-200/70 dark:border-slate-800 overflow-hidden">
-          {professionals.map((prof) => {
-            const isActive = prof.id === activeProfessionalId;
-            const ownersCount = professionals.filter((p) => p.role === 'owner' && p.active).length;
-            const canDelete = !(prof.role === 'owner' && ownersCount <= 1);
-            return (
-              <div
-                key={prof.id}
-                className={`p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
-                  isActive ? 'bg-teal-50/40 dark:bg-teal-950/20' : ''
-                }`}
-              >
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0 mt-1"
-                    style={{ backgroundColor: prof.agendaColor || '#0d9488' }}
-                  />
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2">
-                      <span>{prof.fullName}</span>
-                      {isActive && (
-                        <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-400">
-                          · Operador activo
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2">
-                      <span>{ROLE_LABELS[prof.role]}</span>
-                      {prof.specialty && <span>· {prof.specialty}</span>}
-                      {prof.licenseNumber && <span className="font-mono">· {prof.licenseNumber}</span>}
-                      <span className="font-mono">· PIN: {prof.pinCode ? '••••' : 'Sin PIN'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {editingPinId === prof.id ? (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={editingPinValue}
-                        onChange={(e) => setEditingPinValue(e.target.value)}
-                        placeholder="Nuevo PIN"
-                        className="w-24 px-2 py-1 text-xs rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (editingPinValue.trim()) {
-                            await updateProfessional(prof.id, { pinCode: editingPinValue.trim() });
-                          }
-                          setEditingPinId(null);
-                        }}
-                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-teal-600 text-white"
-                      >
-                        OK
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingPinId(prof.id);
-                        setEditingPinValue(prof.pinCode || '1234');
-                      }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200"
-                    >
-                      <Lock className="w-3 h-3" />
-                      <span>Cambiar PIN</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled={prof.role === 'owner'}
-                    onClick={() => updateProfessional(prof.id, { canViewFinance: !prof.canViewFinance })}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition-colors ${
-                      prof.role === 'owner' || prof.canViewFinance
-                        ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
-                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500'
-                    }`}
-                    title="Habilitar o restringir acceso a Caja y Reportes"
-                  >
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>{prof.role === 'owner' || prof.canViewFinance ? 'Caja habilitada' : 'Sin acceso Caja'}</span>
-                  </button>
-
-                  {!isActive && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveProfessional(prof.id)}
-                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 hover:bg-teal-100"
-                    >
-                      Operar como
-                    </button>
-                  )}
-
-                  {canDelete && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openConfirm({
-                          title: '¿Eliminar profesional?',
-                          description: `Se quitará a ${prof.fullName} del equipo del consultorio.`,
-                          confirmText: 'Eliminar',
-                          cancelText: 'Cancelar',
-                          isDestructive: true,
-                          onConfirm: () => deleteProfessional(prof.id),
-                        })
-                      }
-                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"
-                      title="Eliminar profesional"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          <div className="flex justify-center sm:justify-end">
+            <Button type="submit" variant="primary" size="sm" loading={savingPractitioner} className="w-full sm:w-auto">
+              {savingPractitioner ? 'Guardando...' : 'Guardar perfil profesional'}
+            </Button>
+          </div>
+        </form>
       </section>
 
       {/* Section 0b: Moneda del sistema (Moneda única configurable) */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-4">
+      <section className={`${cardClass} p-4 sm:p-6 space-y-4`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
             <Coins className="w-5 h-5" />
@@ -666,32 +553,61 @@ export const SettingsView: React.FC = () => {
         {(() => {
           const activeCurrency = settings?.currency || DEFAULT_CURRENCY;
           const activeMeta = getCurrencyMeta(activeCurrency);
+          const showCurrencyCode = Boolean(settings?.showCurrencyCode);
           return (
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
-              <div className="sm:col-span-8">
-                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">
-                  Moneda activa del sistema
-                </label>
-                <select
-                  aria-label="Moneda activa del sistema"
-                  value={activeCurrency}
-                  onChange={(e) => updateSettings({ currency: e.target.value as CurrencyCode })}
-                  className="w-full px-3.5 py-2.5 text-xs font-medium rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500 min-h-[42px]"
-                >
-                  {CURRENCY_OPTIONS.map((opt) => (
-                    <option key={opt.code} value={opt.code}>
-                      {opt.code} ({opt.symbol}) — {opt.name} · {opt.country}
-                    </option>
-                  ))}
-                </select>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
+                <div className="sm:col-span-8">
+                  <label className={labelCompactClass}>
+                    Moneda activa del sistema
+                  </label>
+                  <select
+                    aria-label="Moneda activa del sistema"
+                    value={activeCurrency}
+                    onChange={(e) => updateSettings({ currency: e.target.value as CurrencyCode })}
+                    className={`${selectClass} font-medium min-h-[42px]`}
+                  >
+                    {CURRENCY_OPTIONS.map((opt) => (
+                      <option key={opt.code} value={opt.code}>
+                        {opt.code} ({opt.symbol}) — {opt.name} · {opt.country}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Vista previa ({activeMeta.country})
+                  </div>
+                  <div className="text-sm font-bold font-mono tabular-nums text-teal-700 dark:text-teal-300 mt-0.5">
+                    {formatMoney(2500, activeCurrency, showCurrencyCode)}
+                  </div>
+                </div>
               </div>
-              <div className="sm:col-span-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Vista previa ({activeMeta.country})
+
+              <div className="flex items-center justify-between gap-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div>
+                  <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    Mostrar tipo de moneda en la app
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-lg leading-relaxed">
+                    Por defecto los importes muestran solo el símbolo (ej. $ 2.500). Activá esta opción para ver el código de la moneda seleccionada (ej. {activeCurrency} {activeMeta.symbol} 2.500) en tablas y reportes.
+                  </p>
                 </div>
-                <div className="text-sm font-bold font-mono tabular-nums text-teal-700 dark:text-teal-300 mt-0.5">
-                  {formatMoney(2500, activeCurrency)}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => updateSettings({ showCurrencyCode: !showCurrencyCode })}
+                  className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors shrink-0 cursor-pointer ${
+                    showCurrencyCode ? 'bg-teal-600' : 'bg-slate-300 dark:bg-slate-700'
+                  }`}
+                  aria-label="Alternar visualización del tipo de moneda"
+                  aria-pressed={showCurrencyCode}
+                >
+                  <div
+                    className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                      showCurrencyCode ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
               </div>
             </div>
           );
@@ -699,7 +615,7 @@ export const SettingsView: React.FC = () => {
       </section>
 
       {/* Section 1: Transcription Model Tier & Offline Readiness */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-5">
+      <section className={`${cardClass} p-4 sm:p-6 space-y-5`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
             <Cpu className="w-5 h-5" />
@@ -801,7 +717,7 @@ export const SettingsView: React.FC = () => {
                   </p>
                 </button>
 
-                <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2">
                   {cacheInfo?.isCached ? (
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-teal-700 dark:text-teal-400">
                       <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
@@ -890,7 +806,7 @@ export const SettingsView: React.FC = () => {
       </section>
 
       {/* Section 2: Audio, Mic & Recording Settings */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-5">
+      <section className={`${cardClass} p-4 sm:p-6 space-y-5`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
             <Mic className="w-5 h-5" />
@@ -1097,7 +1013,7 @@ export const SettingsView: React.FC = () => {
       </section>
 
       {/* Section 3: Dental Glossary + Share/Migrate */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-5">
+      <section className={`${cardClass} p-4 sm:p-6 space-y-5`}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
@@ -1108,12 +1024,12 @@ export const SettingsView: React.FC = () => {
                 Glosario odontológico post-proceso
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Corrige automáticamente palabras técnicas y compártelo entre consultorios.
+                Corrige automáticamente palabras técnicas y compártelo entre tus equipos.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2">
             <input
               type="file"
               ref={glossaryInputRef}
@@ -1121,29 +1037,30 @@ export const SettingsView: React.FC = () => {
               accept=".json,application/json"
               className="hidden"
             />
-            <button
-              type="button"
+            <Button
+              variant="subtle"
+              size="xs"
+              icon={<Upload className="w-3.5 h-3.5" />}
               onClick={() => glossaryInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[36px]"
             >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Importar</span>
-            </button>
-            <button
-              type="button"
+              Importar
+            </Button>
+            <Button
+              variant="subtle"
+              size="xs"
+              icon={<Download className="w-3.5 h-3.5" />}
               onClick={handleExportGlossary}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[36px]"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Exportar</span>
-            </button>
-            <button
+              Exportar
+            </Button>
+            <Button
+              variant="soft"
+              size="xs"
+              icon={<Plus className="w-3.5 h-3.5" />}
               onClick={() => setIsAddingGlossary(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950 hover:bg-teal-100 dark:hover:bg-teal-900/60 transition-colors min-h-[36px]"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Agregar término</span>
-            </button>
+              Agregar término
+            </Button>
           </div>
         </div>
 
@@ -1151,7 +1068,7 @@ export const SettingsView: React.FC = () => {
           <form onSubmit={handleAddGlossarySubmit} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                <label className={labelCompactClass}>
                   Texto escuchado / erróneo
                 </label>
                 <input
@@ -1159,12 +1076,12 @@ export const SettingsView: React.FC = () => {
                   value={newIncorrect}
                   onChange={(e) => setNewIncorrect(e.target.value)}
                   placeholder="Ej: conducto metría"
-                  className="w-full mt-1 px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+                  className={`${inputClass} bg-white dark:bg-slate-900`}
                   required
                 />
               </div>
               <div>
-                <label className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+                <label className={labelCompactClass}>
                   Término odontológico correcto
                 </label>
                 <input
@@ -1172,36 +1089,29 @@ export const SettingsView: React.FC = () => {
                   value={newCorrect}
                   onChange={(e) => setNewCorrect(e.target.value)}
                   placeholder="Ej: conductometría"
-                  className="w-full mt-1 px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+                  className={`${inputClass} bg-white dark:bg-slate-900`}
                   required
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setIsAddingGlossary(false)}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800"
-              >
+              <Button variant="ghost" size="xs" onClick={() => setIsAddingGlossary(false)}>
                 Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-teal-600 text-white hover:bg-teal-700"
-              >
+              </Button>
+              <Button type="submit" variant="primary" size="xs">
                 Guardar
-              </button>
+              </Button>
             </div>
           </form>
         )}
 
         <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
           {glossary.map((entry) => (
-            <div key={entry.id} className="flex items-center justify-between p-3 text-xs hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-              <div className="flex items-center gap-3">
-                <span className="text-rose-600 line-through dark:text-rose-400">{entry.incorrect}</span>
+            <div key={entry.id} className="flex items-center justify-between gap-2 p-3 text-xs hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 min-w-0 flex-1">
+                <span className="text-rose-600 line-through dark:text-rose-400 break-words">{entry.incorrect}</span>
                 <span className="text-slate-400">→</span>
-                <span className="font-semibold text-teal-700 dark:text-teal-300">{entry.correct}</span>
+                <span className="font-semibold text-teal-700 dark:text-teal-300 break-words">{entry.correct}</span>
               </div>
               <button
                 onClick={() => removeGlossaryEntry(entry.id)}
@@ -1216,7 +1126,7 @@ export const SettingsView: React.FC = () => {
       </section>
 
       {/* Section 4: Visual Theme */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-4">
+      <section className={`${cardClass} p-4 sm:p-6 space-y-4`}>
         <div>
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Aspecto visual
@@ -1225,7 +1135,7 @@ export const SettingsView: React.FC = () => {
             El modo claro utiliza una paleta cálida antifatiga visual (lino y porcelana suave) bajo la luz del consultorio.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
           {[
             { id: 'light', label: 'Claro cálido', icon: Sun },
             { id: 'dark', label: 'Oscuro', icon: Moon },
@@ -1237,7 +1147,7 @@ export const SettingsView: React.FC = () => {
               <button
                 key={item.id}
                 onClick={() => updateSettings({ theme: item.id as 'light' | 'dark' | 'system' })}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl text-xs font-semibold border transition-all min-h-[44px] ${
+                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl text-xs font-semibold border transition-all min-h-[44px] ${
                   isSelected
                     ? 'border-teal-600 bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 shadow-xs'
                     : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -1251,101 +1161,165 @@ export const SettingsView: React.FC = () => {
         </div>
       </section>
 
-      {/* Section 5: Local Storage, Backups & Maintenance */}
-      <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs space-y-5">
+      {/* Section 5: Local Audio Storage & Cleanup */}
+      <section className={`${cardClass} p-4 sm:p-6 space-y-5`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
             <HardDrive className="w-5 h-5" />
           </div>
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Respaldos y mantenimiento local
+              Almacenamiento local de audios
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Exporta o restaura tus consultas, fichas clínicas y glosario antes de cambiar de dispositivo o limpiar el navegador.
+              Liberá espacio en este dispositivo eliminando grabaciones ya procesadas. Tus pacientes, historias clínicas, turnos y transcripciones permanecen intactos.
             </p>
           </div>
         </div>
 
         <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 text-xs space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
             <span className="text-slate-600 dark:text-slate-300">Espacio local en uso:</span>
             <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
               ~{usedMb} MB de {totalMb > 0 ? `${totalMb} MB disponibles` : 'cuota permitida'}
             </span>
           </div>
-        </div>
-
-        {/* Backup Import / Export */}
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            type="file"
-            ref={backupInputRef}
-            onChange={handleImportBackup}
-            accept=".json,application/json"
-            className="hidden"
-          />
-          <button
-            type="button"
-            onClick={handleExportBackup}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/80 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-colors min-h-[44px]"
-          >
-            <Download className="w-4 h-4 text-teal-600" />
-            <span>Exportar respaldo completo (.json)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => backupInputRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[44px]"
-          >
-            <Upload className="w-4 h-4 text-slate-500" />
-            <span>Restaurar respaldo (.json)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => seedDemoData()}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[44px]"
-          >
-            <DatabaseZap className="w-4 h-4 text-teal-600" />
-            <span>Cargar / restaurar datos de demostración</span>
-          </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4">
+            <span className="text-slate-600 dark:text-slate-300">Grabaciones guardadas en este navegador:</span>
+            <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+              {localAudioCount} {localAudioCount === 1 ? 'consulta' : 'consultas'}
+            </span>
+          </div>
         </div>
 
         {/* Cleanup Actions */}
         <div className="flex flex-col sm:flex-row items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-          <button
+          <Button
+            variant="subtle"
+            size="md"
+            className="w-full sm:w-auto"
+            disabled={transcribedLocalAudioCount === 0}
             onClick={() => {
               openConfirm({
-                title: '¿Liberar audio de consultas listas?',
-                description: 'Se borrarán los archivos de audio de todas las consultas que ya fueron transcritas para liberar espacio en disco. Las notas y transcripciones permanecerán intactas.',
+                title: '¿Liberar audio de consultas ya transcritas?',
+                description: `Se borrarán los archivos de audio locales de ${transcribedLocalAudioCount} ${transcribedLocalAudioCount === 1 ? 'consulta ya transcrita' : 'consultas ya transcritas'} para liberar espacio en disco. Las transcripciones, notas y fichas clínicas permanecerán intactas.`,
                 confirmText: 'Liberar audio',
                 cancelText: 'Cancelar',
                 isDestructive: false,
                 onConfirm: () => clearTranscribedAudioAll(),
               });
             }}
-            className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[44px]"
           >
-            Borrar audio de consultas ya transcritas
-          </button>
+            Liberar audios de consultas ya transcritas
+          </Button>
 
-          <button
+          <Button
+            variant="dangerSoft"
+            size="md"
+            className="w-full sm:w-auto"
+            disabled={localAudioCount === 0}
             onClick={() => {
               openConfirm({
-                title: '¿Borrar TODOS los datos locales?',
-                description: 'Esta acción eliminará de forma irreversible todas las grabaciones, transcripciones, glosarios y ajustes almacenados en este navegador. Se recomienda exportar un respaldo antes de proceder.',
-                confirmText: 'Borrar todo',
+                title: '¿Borrar todos los audios locales?',
+                description: 'Se eliminarán todas las grabaciones de audio almacenadas en este navegador (incluidas consultas aún no transcritas). Tus pacientes, evoluciones, turnos y transcripciones ya guardadas no se perderán.',
+                confirmText: 'Borrar audios',
                 cancelText: 'Cancelar',
                 isDestructive: true,
-                onConfirm: () => clearAllData(),
+                onConfirm: () => clearAllLocalAudio(),
               });
             }}
-            className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-900/60 transition-colors min-h-[44px]"
           >
-            Borrar todos los datos locales
-          </button>
+            Borrar todos los audios locales
+          </Button>
+        </div>
+      </section>
+
+      {/* Section 5b: Local Device Identity & Upcoming Premium Cloud Audio Tier */}
+      <section className={`${cardClass} p-4 sm:p-6 space-y-5`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-teal-50 dark:bg-teal-950/60 flex items-center justify-center text-teal-600 dark:text-teal-400">
+              <Cloud className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Dispositivo local y Respaldo de audios (Paquete Premium)
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Las transcripciones, radiografías y archivos se sincronizan en Supabase; los audios viven solo en el dispositivo que los grabó.
+              </p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 self-start sm:self-auto shrink-0">
+            <Lock className="w-3.5 h-3.5 text-amber-600" />
+            <span>
+              {cloudAudioCap.tier === 'premium_audio'
+                ? 'Premium · Nube pendiente'
+                : 'Plan gratuito · Audio 100% local'}
+            </span>
+          </span>
+        </div>
+
+        {/* Device Name Form */}
+        <form
+          onSubmit={handleSaveDeviceLabel}
+          className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                <Laptop className="w-3.5 h-3.5 text-teal-600" />
+                <span>Nombre identificador de este dispositivo</span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Se guarda junto a tus grabaciones para que desde otro equipo puedas ver en qué PC, tablet o consultorio quedó el archivo de audio.
+              </p>
+            </div>
+            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
+              ID: {deviceInfo.deviceId}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={deviceLabelInput}
+              onChange={(e) => setDeviceLabelInput(e.target.value)}
+              placeholder={deviceInfo.defaultLabel}
+              className={`${inputClass} bg-white dark:bg-slate-900 flex-1`}
+            />
+            <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 shrink-0">
+              <Button type="submit" variant="primary" size="sm">
+                Guardar nombre
+              </Button>
+              {deviceInfo.hasCustomLabel && (
+                <Button type="button" variant="ghost" size="sm" onClick={handleResetDeviceLabel}>
+                  Restablecer
+                </Button>
+              )}
+            </div>
+          </div>
+        </form>
+
+        {/* Locked Premium Cloud Audio Tier Info */}
+        <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="text-xs font-semibold text-amber-950 dark:text-amber-100 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>Subida de audios a la nube bloqueada en el plan actual</span>
+            </div>
+            <p className="text-[11px] text-amber-900/85 dark:text-amber-200/85 leading-relaxed">
+              {cloudAudioCap.blockedReason} El sistema ya está preparado para habilitar el almacenamiento externo encriptado cuando se defina la nube del paquete Premium. Mientras tanto, podés exportar cualquier audio directo en formato <span className="font-mono font-semibold">.wav</span> desde el detalle de la consulta.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 opacity-60 cursor-not-allowed" title="Disponible próximamente con el paquete Premium">
+            <span className="text-[11px] font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap">
+              Auto-sync nube
+            </span>
+            <div className="w-11 h-6 flex items-center rounded-full p-1 bg-slate-300 dark:bg-slate-700">
+              <div className="bg-white w-4 h-4 rounded-full shadow-md" />
+            </div>
+          </div>
         </div>
       </section>
     </div>

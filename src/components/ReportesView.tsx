@@ -3,15 +3,16 @@ import {
   BarChart3,
   Download,
   FileDown,
-  Lock,
   Search,
   CalendarRange,
-  Filter,
   RefreshCw,
 } from 'lucide-react';
 import {
   DEFAULT_CURRENCY,
   PAYMENT_METHOD_LABELS,
+  compareTableValues,
+  downloadCsvFile,
+  formatCurrencyHeading,
   formatMoney,
 } from '../core/clinic/clinicHelpers';
 import {
@@ -23,6 +24,33 @@ import {
 } from '../core/clinic/reportEngine';
 import { PaymentMethod } from '../core/types';
 import { useAppStore } from '../store/useAppStore';
+import { Badge } from './ui/Badge';
+import { Button } from './ui/Button';
+import {
+  SortDirection,
+  SortHeaderIcon,
+  parseSortState,
+  serializeSortState,
+} from './ui/DataTable';
+import { Pagination } from './ui/Pagination';
+import {
+  BadgeTone,
+  cardClass,
+  dropdownClass,
+  inputClass,
+  kpiCardClass,
+  labelCompactClass,
+  pageContainerClass,
+  pageSubtitleClass,
+  pageTitleClass,
+  tableBodyClass,
+  tableCellClass,
+  tableHeadClass,
+  tableHeadRowClass,
+  tableHeaderButtonClass,
+  tableRowClass,
+  tableThClass,
+} from './ui/uiClasses';
 
 type DatePreset = 'this_month' | 'last_month' | 'last_30' | 'this_year' | 'all' | 'custom';
 
@@ -76,6 +104,30 @@ const KPI_TONE_CLASSES: Record<NonNullable<ReportKpi['tone']>, string> = {
   teal: 'text-teal-700 dark:text-teal-400',
 };
 
+const STATUS_BADGE_MAP: Record<string, BadgeTone> = {
+  Ingreso: 'emerald',
+  Egreso: 'rose',
+  Vencida: 'rose',
+  'Por vencer': 'amber',
+  'Al día': 'emerald',
+  Realizada: 'emerald',
+  Completada: 'emerald',
+  Asistió: 'emerald',
+  Instalado: 'emerald',
+  Finalizado: 'emerald',
+  Confirmada: 'teal',
+  Aprobado: 'teal',
+  'En clínica': 'teal',
+  'En curso': 'amber',
+  'En laboratorio': 'amber',
+  Programada: 'blue',
+  Presentado: 'blue',
+  Cancelada: 'rose',
+  Ausente: 'rose',
+  'Sin enviar': 'rose',
+  Borrador: 'neutral',
+};
+
 export const ReportesView: React.FC = () => {
   const {
     activeReportType,
@@ -91,26 +143,59 @@ export const ReportesView: React.FC = () => {
     professionals,
     activeProfessionalId,
     settings,
-    canAccessFinance,
     showToast,
+    moduleQuery,
+    setModuleQuery,
   } = useAppStore();
 
   const activeCurrency = settings?.currency || DEFAULT_CURRENCY;
+  const showCurrencyCode = Boolean(settings?.showCurrencyCode);
 
-  const initialDates = useMemo(() => getPresetDates('this_month'), []);
-  const [datePreset, setDatePreset] = useState<DatePreset>('this_month');
-  const [fromDate, setFromDate] = useState<string>(initialDates.from);
-  const [toDate, setToDate] = useState<string>(initialDates.to);
-  const [professionalFilter, setProfessionalFilter] = useState<string>('all');
+  const validPresets = new Set<DatePreset>([
+    'this_month',
+    'last_month',
+    'last_30',
+    'this_year',
+    'all',
+    'custom',
+  ]);
+  const datePreset: DatePreset =
+    moduleQuery.period && validPresets.has(moduleQuery.period as DatePreset)
+      ? (moduleQuery.period as DatePreset)
+      : 'this_month';
+
+  const presetDates = useMemo(
+    () =>
+      datePreset === 'custom'
+        ? getPresetDates('this_month')
+        : getPresetDates(datePreset),
+    [datePreset]
+  );
+
+  const fromDate =
+    datePreset === 'custom' ? moduleQuery.from || presetDates.from : presetDates.from;
+  const toDate =
+    datePreset === 'custom' ? moduleQuery.to || presetDates.to : presetDates.to;
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const allowed = canAccessFinance();
+  const sortState = useMemo(() => {
+    const parsed = parseSortState(moduleQuery.sort);
+    if (!parsed || !parsed.columnId.startsWith('col_')) return null;
+    const idx = Number(parsed.columnId.slice(4));
+    if (!Number.isInteger(idx) || idx < 0) return null;
+    return { colIndex: idx, direction: parsed.direction };
+  }, [moduleQuery.sort]);
+
+  const currentPage = moduleQuery.page || 1;
+  const pageSize = moduleQuery.pageSize || 25;
 
   const applyPreset = (preset: Exclude<DatePreset, 'custom'>) => {
-    const range = getPresetDates(preset);
-    setDatePreset(preset);
-    setFromDate(range.from);
-    setToDate(range.to);
+    setModuleQuery({
+      period: preset === 'this_month' ? undefined : preset,
+      from: undefined,
+      to: undefined,
+      page: undefined,
+    });
   };
 
   const reportData = useMemo(
@@ -119,8 +204,9 @@ export const ReportesView: React.FC = () => {
         reportId: activeReportType,
         fromDate,
         toDate,
-        professionalFilter,
+        professionalFilter: 'all',
         currency: activeCurrency,
+        showCurrencyCode,
         patients,
         providers,
         appointments,
@@ -134,8 +220,8 @@ export const ReportesView: React.FC = () => {
       activeReportType,
       fromDate,
       toDate,
-      professionalFilter,
       activeCurrency,
+      showCurrencyCode,
       patients,
       providers,
       appointments,
@@ -149,11 +235,41 @@ export const ReportesView: React.FC = () => {
 
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return reportData.rows;
-    return reportData.rows.filter((row) =>
-      row.some((cell) => cell.toLowerCase().includes(q))
-    );
-  }, [reportData.rows, searchQuery]);
+    const base = !q
+      ? reportData.rows
+      : reportData.rows.filter((row) =>
+          row.some((cell) => cell.toLowerCase().includes(q))
+        );
+
+    if (!sortState) return base;
+    const { colIndex, direction } = sortState;
+    const copy = [...base];
+    copy.sort((a, b) => {
+      const cmp = compareTableValues(a[colIndex], b[colIndex]);
+      return direction === 'asc' ? cmp : -cmp;
+    });
+    return copy;
+  }, [reportData.rows, searchQuery, sortState]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / Math.max(1, pageSize)));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const pagedRows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, safePage, pageSize]);
+
+  const handleSortCol = (colIndex: number) => {
+    const nextDirection: SortDirection | null =
+      !sortState || sortState.colIndex !== colIndex
+        ? 'asc'
+        : sortState.direction === 'asc'
+        ? 'desc'
+        : null;
+    const serialized = nextDirection
+      ? serializeSortState({ columnId: `col_${colIndex}`, direction: nextDirection })
+      : null;
+    setModuleQuery({ sort: serialized || undefined, page: undefined });
+  };
 
   // Extra visual breakdown for Cash & Patient Payments
   const cashBreakdown = useMemo(() => {
@@ -161,73 +277,44 @@ export const ReportesView: React.FC = () => {
       return null;
     }
     const byMethod = new Map<PaymentMethod, number>();
-    const byProfessional = new Map<string, number>();
     let totalAmount = 0;
 
     financialTransactions.forEach((tx) => {
       if (tx.deletedAt || tx.type !== 'payment') return;
       if (fromDate && tx.date < fromDate) return;
       if (toDate && tx.date > toDate) return;
-      if (professionalFilter !== 'all' && tx.professionalId !== professionalFilter) return;
 
       totalAmount += tx.amount;
       byMethod.set(tx.paymentMethod, (byMethod.get(tx.paymentMethod) || 0) + tx.amount);
-      const profKey = tx.professionalName || 'Sin profesional';
-      byProfessional.set(profKey, (byProfessional.get(profKey) || 0) + tx.amount);
     });
 
     return {
       totalAmount,
       methodRows: Array.from(byMethod.entries()).sort((a, b) => b[1] - a[1]),
-      profRows: Array.from(byProfessional.entries()).sort((a, b) => b[1] - a[1]),
     };
-  }, [activeReportType, financialTransactions, fromDate, toDate, professionalFilter]);
-
-  const activeProfName = useMemo(() => {
-    if (professionalFilter === 'all') return 'Todos los profesionales';
-    return (
-      professionals.find((p) => p.id === professionalFilter)?.fullName || 'Profesional seleccionado'
-    );
-  }, [professionalFilter, professionals]);
+  }, [activeReportType, financialTransactions, fromDate, toDate]);
 
   const currentOperatorName = useMemo(() => {
-    return professionals.find((p) => p.id === activeProfessionalId)?.fullName || 'Odontólogo';
+    return (
+      professionals.find((p) => p.id === activeProfessionalId)?.fullName ||
+      professionals[0]?.fullName ||
+      'Odontólogo'
+    );
   }, [professionals, activeProfessionalId]);
 
   const handleExportCsv = () => {
-    const escapeCell = (cell: string) => `"${String(cell).replace(/"/g, '""')}"`;
-    const csvLines = [
-      reportData.columns.map(escapeCell).join(','),
-      ...filteredRows.map((row) => row.map(escapeCell).join(',')),
-    ];
-    const csvContent = `\uFEFF${csvLines.join('\n')}`;
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `odontohelper_${activeReportType}_${fromDate}_${toDate}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadCsvFile(
+      `odontohelper_${activeReportType}_${fromDate}_${toDate}.csv`,
+      reportData.columns,
+      filteredRows,
+      true
+    );
     showToast(`Reporte "${reportData.definition.label}" exportado a CSV`, 'success');
   };
 
   const handleExportPdf = () => {
     window.print();
   };
-
-  if (!allowed) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-3">
-        <Lock className="w-10 h-10 mx-auto text-slate-400" />
-        <h1 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-          Acceso a reportes restringido
-        </h1>
-        <p className="text-xs text-slate-500">
-          Cambiá de operador o habilitá permisos económicos en Configuración para acceder a reportes.
-        </p>
-      </div>
-    );
-  }
 
   const categoriesOrder: ReportDefinition['category'][] = [
     'finanzas',
@@ -242,14 +329,16 @@ export const ReportesView: React.FC = () => {
       : `${fromDate} al ${toDate}`
     : `Estado actual al ${toIsoDate(new Date())}`;
 
+  const tipoColIdx = reportData.columns.findIndex((c) => c.toLowerCase() === 'tipo');
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <div className={pageContainerClass}>
       {/* Formal Clinical PDF Print Header */}
       <div className="hidden print-only border-b-2 border-slate-900 pb-4 mb-4">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wider text-teal-700">
-              OdontoHelper · Reporte de Gestión
+              Reporte de Gestión
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mt-0.5">
               {reportData.definition.label}
@@ -261,10 +350,7 @@ export const ReportesView: React.FC = () => {
               <strong>Período:</strong> {periodDescription}
             </div>
             <div>
-              <strong>Profesional:</strong> {activeProfName}
-            </div>
-            <div>
-              <strong>Generado por:</strong> {currentOperatorName}
+              <strong>Profesional:</strong> {currentOperatorName}
             </div>
             <div>
               <strong>Emisión:</strong> {new Date().toLocaleString('es-AR')}
@@ -284,20 +370,20 @@ export const ReportesView: React.FC = () => {
             <span aria-hidden="true">·</span>
             <span className="tabular-nums">{filteredRows.length} registros</span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 mt-0.5">
+          <h1 className={`${pageTitleClass} mt-0.5`}>
             {reportData.definition.label}
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          <p className={pageSubtitleClass}>
             {reportData.definition.description}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 w-full lg:w-auto shrink-0">
           <select
             aria-label="Seleccionar tipo de reporte"
             value={activeReportType}
             onChange={(e) => setReportType(e.target.value as ReportTypeId)}
-            className="px-3 py-2 text-xs font-medium rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 max-w-[260px]"
+            className={`${dropdownClass} w-full sm:w-auto sm:max-w-[260px]`}
           >
             {categoriesOrder.map((cat) => (
               <optgroup key={cat} label={CATEGORY_LABELS[cat]}>
@@ -310,29 +396,29 @@ export const ReportesView: React.FC = () => {
             ))}
           </select>
 
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Download className="w-3.5 h-3.5" />}
             onClick={handleExportCsv}
             disabled={filteredRows.length === 0}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 disabled:opacity-45"
           >
-            <Download className="w-3.5 h-3.5" />
-            <span>Exportar CSV</span>
-          </button>
+            Exportar CSV
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<FileDown className="w-3.5 h-3.5" />}
             onClick={handleExportPdf}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 shadow-xs"
           >
-            <FileDown className="w-3.5 h-3.5" />
-            <span>Exportar PDF</span>
-          </button>
+            Exportar PDF
+          </Button>
         </div>
       </div>
 
       {/* Filters Toolbar */}
-      <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 space-y-3 no-print">
+      <section className={`${cardClass} p-4 space-y-3 no-print`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 mr-1">
@@ -353,7 +439,7 @@ export const ReportesView: React.FC = () => {
                 type="button"
                 disabled={!reportData.definition.usesDateRange}
                 onClick={() => applyPreset(presetId)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors disabled:opacity-45 ${
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                   datePreset === presetId && reportData.definition.usesDateRange
                     ? 'bg-teal-600 text-white'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70'
@@ -372,57 +458,9 @@ export const ReportesView: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 pt-1">
-          <div className="lg:col-span-2">
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">Desde</label>
-            <input
-              type="date"
-              value={fromDate}
-              disabled={!reportData.definition.usesDateRange}
-              onChange={(e) => {
-                setDatePreset('custom');
-                setFromDate(e.target.value);
-              }}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 tabular-nums disabled:opacity-45"
-            />
-          </div>
-
-          <div className="lg:col-span-2">
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">Hasta</label>
-            <input
-              type="date"
-              value={toDate}
-              disabled={!reportData.definition.usesDateRange}
-              onChange={(e) => {
-                setDatePreset('custom');
-                setToDate(e.target.value);
-              }}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 tabular-nums disabled:opacity-45"
-            />
-          </div>
-
-          <div className="lg:col-span-3">
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">
-              Profesional
-            </label>
-            <div className="relative">
-              <Filter className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <select
-                value={professionalFilter}
-                onChange={(e) => setProfessionalFilter(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-              >
-                <option value="all">Todos los profesionales</option>
-                {professionals.map((prof) => (
-                  <option key={prof.id} value={prof.id}>
-                    {prof.fullName}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="lg:col-span-3">
-            <label className="block text-[11px] font-medium text-slate-500 mb-1">
+          {/* Search FIRST on left for quick filtering */}
+          <div className="lg:col-span-6">
+            <label className={labelCompactClass}>
               Filtrar en resultados
             </label>
             <div className="relative">
@@ -430,27 +468,73 @@ export const ReportesView: React.FC = () => {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Paciente, DNI, concepto, proveedor..."
-                className="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (moduleQuery.page) setModuleQuery({ page: undefined });
+                }}
+                placeholder="Paciente, CI, concepto, proveedor..."
+                className={`${inputClass} pl-8 bg-white dark:bg-slate-900`}
               />
             </div>
           </div>
 
+          <div className="lg:col-span-2">
+            <label className={labelCompactClass}>Desde</label>
+            <input
+              type="date"
+              value={fromDate}
+              disabled={!reportData.definition.usesDateRange}
+              onChange={(e) => {
+                setModuleQuery({
+                  period: 'custom',
+                  from: e.target.value || undefined,
+                  to: toDate || undefined,
+                  page: undefined,
+                });
+              }}
+              className={`${inputClass} tabular-nums bg-white dark:bg-slate-900 disabled:opacity-45`}
+            />
+          </div>
+
+          <div className="lg:col-span-2">
+            <label className={labelCompactClass}>Hasta</label>
+            <input
+              type="date"
+              value={toDate}
+              disabled={!reportData.definition.usesDateRange}
+              onChange={(e) => {
+                setModuleQuery({
+                  period: 'custom',
+                  from: fromDate || undefined,
+                  to: e.target.value || undefined,
+                  page: undefined,
+                });
+              }}
+              className={`${inputClass} tabular-nums bg-white dark:bg-slate-900 disabled:opacity-45`}
+            />
+          </div>
+
           <div className="lg:col-span-2 flex items-end">
-            <button
-              type="button"
+            <Button
+              variant="subtle"
+              size="sm"
+              fullWidth
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
               onClick={() => {
                 setSearchQuery('');
-                setProfessionalFilter('all');
-                applyPreset('this_month');
+                setModuleQuery({
+                  period: undefined,
+                  from: undefined,
+                  to: undefined,
+                  prof: undefined,
+                  sort: undefined,
+                  page: undefined,
+                });
                 showToast(`Reporte actualizado (${reportData.rows.length} registros)`, 'info');
               }}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200/70 transition-colors"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Restablecer</span>
-            </button>
+              Restablecer
+            </Button>
           </div>
         </div>
       </section>
@@ -466,10 +550,7 @@ export const ReportesView: React.FC = () => {
         } gap-3 print-break-inside-avoid`}
       >
         {reportData.kpis.map((kpi) => (
-          <div
-            key={kpi.label}
-            className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800"
-          >
+          <div key={kpi.label} className={kpiCardClass}>
             <div className="text-xs text-slate-500 dark:text-slate-400">{kpi.label}</div>
             <div
               className={`text-xl font-bold font-mono tabular-nums mt-1 ${
@@ -488,77 +569,43 @@ export const ReportesView: React.FC = () => {
       </div>
 
       {/* Extra Breakdown Grid for Cash & Patient Payments */}
-      {cashBreakdown && (cashBreakdown.methodRows.length > 0 || cashBreakdown.profRows.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 print-break-inside-avoid">
-          <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-teal-600" />
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Ingresos ({activeCurrency}) por medio de pago
-              </h2>
-            </div>
-            <div className="space-y-2.5">
-              {cashBreakdown.methodRows.map(([method, amount]) => {
-                const pct =
-                  cashBreakdown.totalAmount > 0
-                    ? Math.round((amount / cashBreakdown.totalAmount) * 100)
-                    : 0;
-                return (
-                  <div key={method} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-700 dark:text-slate-200">
-                        {PAYMENT_METHOD_LABELS[method] || method}
-                      </span>
-                      <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
-                        {formatMoney(amount, activeCurrency)} ({pct}%)
-                      </span>
-                    </div>
-                    <div className="h-2 w-full rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                      <div className="h-full bg-teal-600" style={{ width: `${pct}%` }} />
-                    </div>
+      {cashBreakdown && cashBreakdown.methodRows.length > 0 && (
+        <section className={`${cardClass} p-4 sm:p-5 space-y-3 print-break-inside-avoid`}>
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-teal-600" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              {formatCurrencyHeading('Ingresos por medio de pago', activeCurrency, showCurrencyCode)}
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2.5">
+            {cashBreakdown.methodRows.map(([method, amount]) => {
+              const pct =
+                cashBreakdown.totalAmount > 0
+                  ? Math.round((amount / cashBreakdown.totalAmount) * 100)
+                  : 0;
+              return (
+                <div key={method} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {PAYMENT_METHOD_LABELS[method] || method}
+                    </span>
+                    <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                      {formatMoney(amount, activeCurrency, showCurrencyCode)} ({pct}%)
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-teal-600" />
-              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Ingresos ({activeCurrency}) por profesional
-              </h2>
-            </div>
-            <div className="space-y-2.5">
-              {cashBreakdown.profRows.map(([profName, amount]) => {
-                const pct =
-                  cashBreakdown.totalAmount > 0
-                    ? Math.round((amount / cashBreakdown.totalAmount) * 100)
-                    : 0;
-                return (
-                  <div key={profName} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-700 dark:text-slate-200">
-                        {profName}
-                      </span>
-                      <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
-                        {formatMoney(amount, activeCurrency)} ({pct}%)
-                      </span>
-                    </div>
-                    <div className="h-2 w-full rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                      <div className="h-full bg-blue-600" style={{ width: `${pct}%` }} />
-                    </div>
+                  <div className="h-2 w-full rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <div className="h-full bg-teal-600" style={{ width: `${pct}%` }} />
                   </div>
-                );
-              })}
-            </div>
-          </section>
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
-      {/* Full Preview Data Table */}
-      <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3">
+      {/* Full Preview Data Table with Sortable Columns & Crisp Dividers */}
+      <section className={`${cardClass} overflow-hidden`}>
+        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
             Detalle del reporte: {reportData.definition.label}
           </h2>
@@ -575,49 +622,107 @@ export const ReportesView: React.FC = () => {
               : reportData.emptyMessage}
           </div>
         ) : (
-          <div className="overflow-x-auto print-overflow-visible">
+          <div className="overflow-x-auto scrollbar-thin print-overflow-visible">
             <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800">
-                  {reportData.columns.map((col) => (
-                    <th
-                      key={col}
-                      className="px-4 py-3 font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap"
-                    >
-                      {col}
-                    </th>
-                  ))}
+              <thead className={tableHeadClass}>
+                <tr className={tableHeadRowClass}>
+                  {reportData.columns.map((col, colIdx) => {
+                    const isSorted = sortState?.colIndex === colIdx;
+                    return (
+                      <th key={col} className={tableThClass}>
+                        <button
+                          type="button"
+                          onClick={() => handleSortCol(colIdx)}
+                          title={`Ordenar por ${col}`}
+                          className={`${tableHeaderButtonClass} justify-between`}
+                        >
+                          <span>{col}</span>
+                          <SortHeaderIcon
+                            active={isSorted}
+                            direction={isSorted ? sortState!.direction : null}
+                          />
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                {filteredRows.map((row, rIdx) => (
-                  <tr
-                    key={`${rIdx}-${row[0]}-${row[1] || ''}`}
-                    className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
-                  >
-                    {row.map((cell, cIdx) => {
-                      const isNumericLike =
-                        /^[-+]?\s*(\$|US\$|R\$|S\/|₡|₲|Bs|Q|B\/\.|RD\$|ARS|CLP|COP|MXN|PEN|PYG|BOB|CRC|DOP|GTQ|PAB|VES|\d{4}-\d{2}-\d{2}|\d{2}:\d{2})/.test(
-                          cell
+              <tbody className={tableBodyClass}>
+                {pagedRows.map((row, rIdx) => {
+                  const rowTipo = tipoColIdx >= 0 ? row[tipoColIdx] : '';
+                  return (
+                    <tr key={`${(safePage - 1) * pageSize + rIdx}-${row[0]}-${row[1] || ''}`} className={tableRowClass}>
+                      {row.map((cell, cIdx) => {
+                        const isNumericLike =
+                          /^[-+]?\s*(\$|R\$|S\/|₡|₲|Bs|Q|B\/\.|UYU|USD|ARS|BRL|CLP|COP|MXN|PEN|PYG|BOB|CRC|DOP|GTQ|PAB|VES|\d{4}-\d{2}-\d{2}|\d{2}:\d{2})/.test(
+                            cell
+                          );
+                        const colHeader = (reportData.columns[cIdx] || '').toLowerCase();
+                        const badgeTone = STATUS_BADGE_MAP[cell];
+                        const isStatusOrTypeCol =
+                          colHeader === 'tipo' ||
+                          colHeader === 'estado' ||
+                          colHeader === 'ficha';
+
+                        const isNegativeCell = cell.trim().startsWith('-');
+                        const isMontoCol =
+                          colHeader.includes('monto') ||
+                          colHeader.includes('saldo') ||
+                          colHeader.includes('importe') ||
+                          colHeader.includes('total') ||
+                          colHeader.includes('costo');
+
+                        let amountToneClass = 'text-slate-800 dark:text-slate-200';
+                        if (isNegativeCell || (isMontoCol && rowTipo === 'Egreso')) {
+                          amountToneClass = 'text-rose-700 dark:text-rose-400 font-semibold';
+                        } else if (isMontoCol && rowTipo === 'Ingreso') {
+                          amountToneClass = 'text-emerald-700 dark:text-emerald-400 font-semibold';
+                        }
+
+                        return (
+                          <td
+                            key={cIdx}
+                            className={`${tableCellClass} ${amountToneClass} ${
+                              isNumericLike ? 'font-mono tabular-nums whitespace-nowrap' : ''
+                            } ${cIdx === row.length - 1 && isNumericLike ? 'font-semibold' : ''}`}
+                          >
+                            {isStatusOrTypeCol && badgeTone ? (
+                              <Badge tone={badgeTone} size="xs">
+                                {cell}
+                              </Badge>
+                            ) : (
+                              cell
+                            )}
+                          </td>
                         );
-                      return (
-                        <td
-                          key={cIdx}
-                          className={`px-4 py-2.5 text-slate-800 dark:text-slate-200 ${
-                            isNumericLike ? 'font-mono tabular-nums whitespace-nowrap' : ''
-                          } ${cIdx === row.length - 1 && isNumericLike ? 'font-semibold' : ''}`}
-                        >
-                          {cell}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
+
+      {filteredRows.length > 0 && (
+        <Pagination
+          currentPage={safePage}
+          totalItems={filteredRows.length}
+          pageSize={pageSize}
+          onPageChange={(nextPage) =>
+            setModuleQuery({ page: nextPage <= 1 ? undefined : nextPage })
+          }
+          onPageSizeChange={(nextSize) =>
+            setModuleQuery({
+              pageSize: nextSize === 25 ? undefined : nextSize,
+              page: undefined,
+            })
+          }
+          pageSizeOptions={[25, 50, 100, 250]}
+          itemLabel="filas"
+        />
+      )}
     </div>
   );
 };

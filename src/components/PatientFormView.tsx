@@ -1,9 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { Save, UserPlus, ArrowLeft } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Save, UserPlus, ArrowLeft, RotateCcw } from 'lucide-react';
 import { extractPatientFromTranscript } from '../core/clinical/entityExtractor';
 import { PatientDraftInput } from '../core/types';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../core/utils/localDrafts';
 import { useAppStore } from '../store/useAppStore';
 import { VoiceIntakePanel } from './VoiceIntakePanel';
+import { AutoResizeTextarea } from './ui/AutoResizeTextarea';
+import { Button } from './ui/Button';
+import {
+  cardClass,
+  inputClass,
+  labelClass,
+  pageHeaderClass,
+  pageSubtitleClass,
+  pageTitleClass,
+} from './ui/uiClasses';
 
 const EMPTY_FORM: PatientDraftInput = {
   fullName: '',
@@ -49,54 +60,105 @@ export const PatientFormView: React.FC = () => {
     updatePatient,
     setView,
     showToast,
+    setDraftDirty,
+    guardNavigation,
   } = useAppStore();
 
   const editingPatient = editingPatientId
     ? patients.find((p) => p.id === editingPatientId)
     : undefined;
 
+  const draftKey = `patient_form:${editingPatient?.id || 'new'}`;
+  const dirtyKey = `patient_form:${editingPatient?.id || 'new'}`;
+  const dirtyLabel = editingPatient ? `Edición de ${editingPatient.fullName}` : 'Nuevo paciente';
+
   const [form, setForm] = useState<PatientDraftInput>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const baselineSnapshotRef = useRef<string>(JSON.stringify(EMPTY_FORM));
+  const baselineFormRef = useRef<PatientDraftInput>(EMPTY_FORM);
+  const initializedKeyRef = useRef<string>('');
 
-  // Sync form when editing an existing patient
+  // Sync form when editing an existing patient, recovering any auto-saved local draft
   useEffect(() => {
-    if (editingPatient) {
-      setForm({
-        fullName: editingPatient.fullName || '',
-        dni: editingPatient.dni || '',
-        birthDate: editingPatient.birthDate || '',
-        age: editingPatient.age || '',
-        gender: editingPatient.gender,
-        phone: editingPatient.phone || '',
-        secondaryPhone: editingPatient.secondaryPhone || '',
-        email: editingPatient.email || '',
-        address: editingPatient.address || '',
-        groupTag: editingPatient.groupTag || '',
-        insuranceProvider: editingPatient.insuranceProvider || '',
-        insuranceNumber: editingPatient.insuranceNumber || '',
-        allergies: editingPatient.allergies || '',
-        medicalHistory: editingPatient.medicalHistory || '',
-        chiefComplaint: editingPatient.chiefComplaint || '',
-        notes: editingPatient.notes || '',
-        anamnesis: editingPatient.anamnesis || {},
-        physicalExam: editingPatient.physicalExam,
-        nextControlDate: editingPatient.nextControlDate,
-        nextControlNote: editingPatient.nextControlNote,
-        photoDataUrl: editingPatient.photoDataUrl,
-        sourceSessionId: editingPatient.sourceSessionId,
-      });
-    } else if (voiceIntakeDraft?.target === 'patient' && voiceIntakeDraft.extractedPatient) {
-      const ext = voiceIntakeDraft.extractedPatient;
-      setForm({
-        ...EMPTY_FORM,
-        ...ext,
-        anamnesis: {},
-        sourceSessionId: voiceIntakeDraft.sessionId,
-      });
+    const initialForm: PatientDraftInput = editingPatient
+      ? {
+          fullName: editingPatient.fullName || '',
+          dni: editingPatient.dni || '',
+          birthDate: editingPatient.birthDate || '',
+          age: editingPatient.age || '',
+          gender: editingPatient.gender,
+          phone: editingPatient.phone || '',
+          secondaryPhone: editingPatient.secondaryPhone || '',
+          email: editingPatient.email || '',
+          address: editingPatient.address || '',
+          groupTag: editingPatient.groupTag || '',
+          insuranceProvider: editingPatient.insuranceProvider || '',
+          insuranceNumber: editingPatient.insuranceNumber || '',
+          allergies: editingPatient.allergies || '',
+          medicalHistory: editingPatient.medicalHistory || '',
+          chiefComplaint: editingPatient.chiefComplaint || '',
+          notes: editingPatient.notes || '',
+          anamnesis: editingPatient.anamnesis || {},
+          physicalExam: editingPatient.physicalExam,
+          nextControlDate: editingPatient.nextControlDate,
+          nextControlNote: editingPatient.nextControlNote,
+          photoDataUrl: editingPatient.photoDataUrl,
+          sourceSessionId: editingPatient.sourceSessionId,
+        }
+      : voiceIntakeDraft?.target === 'patient' && voiceIntakeDraft.extractedPatient
+      ? {
+          ...EMPTY_FORM,
+          ...voiceIntakeDraft.extractedPatient,
+          anamnesis: {},
+          sourceSessionId: voiceIntakeDraft.sessionId,
+        }
+      : EMPTY_FORM;
+
+    baselineFormRef.current = initialForm;
+    baselineSnapshotRef.current = JSON.stringify(initialForm);
+    initializedKeyRef.current = draftKey;
+
+    if (!(voiceIntakeDraft?.target === 'patient' && voiceIntakeDraft.extractedPatient)) {
+      const savedDraft = loadLocalDraft<PatientDraftInput>(draftKey);
+      if (savedDraft?.data && JSON.stringify(savedDraft.data) !== baselineSnapshotRef.current) {
+        setForm(savedDraft.data);
+        setRestoredDraftAt(savedDraft.updatedAt);
+        setIsDirty(true);
+        setDraftDirty(dirtyKey, dirtyLabel);
+      } else {
+        setForm(initialForm);
+        setRestoredDraftAt(null);
+        setIsDirty(false);
+        setDraftDirty(dirtyKey, null);
+      }
     } else {
-      setForm(EMPTY_FORM);
+      setForm(initialForm);
+      setRestoredDraftAt(null);
+      setIsDirty(true);
+      setDraftDirty(dirtyKey, dirtyLabel);
     }
-  }, [editingPatient?.id, voiceIntakeDraft?.createdAt]);
+
+    return () => {
+      setDraftDirty(dirtyKey, null);
+    };
+  }, [editingPatient?.id, voiceIntakeDraft?.createdAt, draftKey, dirtyKey]);
+
+  // Persist unsaved edits locally & update dirty state
+  useEffect(() => {
+    if (initializedKeyRef.current !== draftKey) return;
+    const dirty = JSON.stringify(form) !== baselineSnapshotRef.current;
+    setIsDirty(dirty);
+    if (dirty) {
+      saveLocalDraft(draftKey, form);
+      setDraftDirty(dirtyKey, dirtyLabel);
+    } else {
+      clearLocalDraft(draftKey);
+      setRestoredDraftAt(null);
+      setDraftDirty(dirtyKey, null);
+    }
+  }, [form, draftKey, dirtyKey, dirtyLabel, setDraftDirty]);
 
   const handleExtractFromText = (text: string, sessionId?: string) => {
     const extracted = extractPatientFromTranscript(text);
@@ -128,10 +190,20 @@ export const PatientFormView: React.FC = () => {
       };
       if (editingPatient) {
         await updatePatient(editingPatient.id, payload);
+        clearLocalDraft(draftKey);
+        setDraftDirty(dirtyKey, null);
+        setIsDirty(false);
+        setRestoredDraftAt(null);
         setView('patients-search');
       } else {
         const created = await createPatient(payload);
         if (created) {
+          clearLocalDraft(draftKey);
+          setDraftDirty(dirtyKey, null);
+          setIsDirty(false);
+          setRestoredDraftAt(null);
+          baselineFormRef.current = EMPTY_FORM;
+          baselineSnapshotRef.current = JSON.stringify(EMPTY_FORM);
           setForm(EMPTY_FORM);
           setView('patients-search');
         }
@@ -141,29 +213,35 @@ export const PatientFormView: React.FC = () => {
     }
   };
 
-  const inputClass =
-    'w-full px-3.5 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-colors';
-  const labelClass = 'block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5';
+  const handleDiscardDraft = () => {
+    clearLocalDraft(draftKey);
+    setDraftDirty(dirtyKey, null);
+    setRestoredDraftAt(null);
+    setIsDirty(false);
+    setForm(baselineFormRef.current);
+    showToast('Borrador local descartado', 'info');
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
+      <div className={pageHeaderClass}>
         <div className="flex items-center gap-3">
           {editingPatient && (
-            <button
-              type="button"
-              onClick={() => setView('patients-search')}
-              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[40px] min-w-[40px] flex items-center justify-center"
+            <Button
+              variant="icon"
+              size="md"
+              onClick={() => guardNavigation(() => setView('patients-search'))}
+              aria-label="Volver a pacientes"
             >
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </Button>
           )}
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            <h1 className={pageTitleClass}>
               {editingPatient ? `Editar paciente · ${editingPatient.fullName}` : 'Nuevo paciente'}
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            <p className={pageSubtitleClass}>
               Registra la historia clínica inicial manualmente o dictando por voz para autocompletar la ficha.
             </p>
           </div>
@@ -185,8 +263,25 @@ export const PatientFormView: React.FC = () => {
       {/* Patient EMR Form */}
       <form
         onSubmit={handleSubmit}
-        className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 p-6 space-y-6"
+        className={`${cardClass} p-4 sm:p-6 space-y-6`}
       >
+        {(restoredDraftAt || isDirty) && (
+          <div className="p-3 rounded-xl bg-amber-50/90 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+            <span>
+              {restoredDraftAt
+                ? 'Se recuperó un borrador local sin guardar de este paciente.'
+                : 'Borrador guardado localmente en este dispositivo (falta confirmar los cambios).'}
+            </span>
+            <button
+              type="button"
+              onClick={handleDiscardDraft}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100/70 cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Descartar borrador</span>
+            </button>
+          </div>
+        )}
         {/* Identificación */}
         <div className="space-y-4">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -216,7 +311,7 @@ export const PatientFormView: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
                 <label className={labelClass}>Edad</label>
                 <input
@@ -270,7 +365,7 @@ export const PatientFormView: React.FC = () => {
 
             <div>
               <label className={labelClass}>Sexo</label>
-              <div className="flex items-center gap-3 pt-1.5">
+              <div className="flex flex-wrap items-center gap-3 pt-1.5">
                 {(['F', 'M', 'X'] as const).map((g) => (
                   <label key={g} className="inline-flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200 cursor-pointer">
                     <input
@@ -299,12 +394,11 @@ export const PatientFormView: React.FC = () => {
 
             <div>
               <label className={labelClass}>Domicilio</label>
-              <input
-                type="text"
+              <AutoResizeTextarea
+                minRows={1}
                 value={form.address || ''}
                 onChange={(e) => setForm({ ...form, address: e.target.value })}
                 placeholder="Calle, número, localidad"
-                className={inputClass}
               />
             </div>
 
@@ -369,72 +463,74 @@ export const PatientFormView: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Alergias conocidas</label>
-              <input
-                type="text"
+              <AutoResizeTextarea
+                minRows={1}
                 value={form.allergies || ''}
                 onChange={(e) => setForm({ ...form, allergies: e.target.value })}
                 placeholder="Ej: Penicilina, látex, anestésicos o sin alergias"
-                className={inputClass}
               />
             </div>
 
             <div>
               <label className={labelClass}>Medicación / Antecedentes médicos</label>
-              <input
-                type="text"
+              <AutoResizeTextarea
+                minRows={1}
                 value={form.medicalHistory || ''}
                 onChange={(e) => setForm({ ...form, medicalHistory: e.target.value })}
                 placeholder="Ej: Losartán 50mg, anticoagulantes, diabetes"
-                className={inputClass}
               />
             </div>
 
             <div className="md:col-span-2">
               <label className={labelClass}>Motivo de consulta inicial</label>
-              <textarea
-                rows={2}
+              <AutoResizeTextarea
+                minRows={2}
                 value={form.chiefComplaint || ''}
                 onChange={(e) => setForm({ ...form, chiefComplaint: e.target.value })}
                 placeholder="Motivo principal de ingreso o síntomas referidos..."
-                className={inputClass}
               />
             </div>
 
             <div className="md:col-span-2">
               <label className={labelClass}>Notas clínicas adicionales</label>
-              <textarea
-                rows={3}
+              <AutoResizeTextarea
+                minRows={3}
                 value={form.notes || ''}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Observaciones, piezas FDI detectadas o resumen de dictado..."
-                className={inputClass}
               />
             </div>
           </div>
         </div>
 
         {/* Form Actions */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <button
-            type="button"
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <Button
+            variant="ghost"
             onClick={() => {
-              setForm(EMPTY_FORM);
-              clearVoiceIntakeDraft();
-              if (editingPatient) setView('patients-search');
+              if (editingPatient) {
+                guardNavigation(() => setView('patients-search'));
+              } else {
+                clearLocalDraft(draftKey);
+                setDraftDirty(dirtyKey, null);
+                setRestoredDraftAt(null);
+                setIsDirty(false);
+                setForm(EMPTY_FORM);
+                clearVoiceIntakeDraft();
+              }
             }}
-            className="px-4 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[40px]"
           >
             {editingPatient ? 'Cancelar' : 'Limpiar formulario'}
-          </button>
+          </Button>
 
-          <button
+          <Button
             type="submit"
-            disabled={saving}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-xs min-h-[40px]"
+            variant="primary"
+            loading={saving}
+            icon={editingPatient ? <Save className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
           >
-            {editingPatient ? <Save className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-            <span>{editingPatient ? 'Guardar cambios' : 'Registrar paciente'}</span>
-          </button>
+            {editingPatient ? 'Guardar cambios' : 'Registrar paciente'}
+          </Button>
         </div>
       </form>
     </div>

@@ -8,6 +8,8 @@ import { HomeView } from './HomeView';
 import { PrivacyView } from './PrivacyView';
 import { RecordingView } from './RecordingView';
 
+import { segmentedTabClass, segmentedTrackClass } from './ui/uiClasses';
+
 export const DictateHubView: React.FC = () => {
   const { currentView, setView } = useAppStore();
   const showDownloads = shouldShowDownloadsTab();
@@ -19,16 +21,12 @@ export const DictateHubView: React.FC = () => {
     <div className="flex flex-col h-full">
       {showSubTabs && (
         <div className="no-print border-b border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/50 px-4 sm:px-6 lg:px-8 py-2.5">
-          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200/70 dark:border-slate-800/70">
+          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-center sm:justify-between gap-3">
+            <div className={`${segmentedTrackClass} w-full sm:w-auto`}>
               <button
                 type="button"
                 onClick={() => setView('home')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                  currentView === 'home'
-                    ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
+                className={`inline-flex items-center gap-1.5 ${segmentedTabClass(currentView === 'home')}`}
               >
                 <Mic className="w-3.5 h-3.5" />
                 <span>Grabaciones y dictado</span>
@@ -37,11 +35,7 @@ export const DictateHubView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setView('privacy')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                  currentView === 'privacy'
-                    ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                }`}
+                className={`inline-flex items-center gap-1.5 ${segmentedTabClass(currentView === 'privacy')}`}
               >
                 <Shield className="w-3.5 h-3.5" />
                 <span>Privacidad</span>
@@ -51,11 +45,7 @@ export const DictateHubView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setView('downloads')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-                    currentView === 'downloads'
-                      ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                  }`}
+                  className={`inline-flex items-center gap-1.5 ${segmentedTabClass(currentView === 'downloads')}`}
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Descargas nativas</span>

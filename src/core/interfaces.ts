@@ -3,6 +3,7 @@ import {
   AudioChunk,
   GlossaryEntry,
   ModelTier,
+  PatientFileAttachment,
   Profile,
   Session,
   TranscriptSegment,
@@ -31,12 +32,21 @@ export interface ITranscriptRepository {
 export interface IAudioStore {
   addChunk(chunk: AudioChunk): Promise<void>;
   getChunks(sessionId: string): Promise<AudioChunk[]>;
+  hasAudio(sessionId: string): Promise<boolean>;
+  getAudioAvailabilityMap(sessionIds: string[]): Promise<Record<string, boolean>>;
   getCombinedPcmFloat32(sessionId: string): Promise<Float32Array>;
   createWavBlob(sessionId: string): Promise<{ blob: Blob; durationSec: number }>;
   deleteAudio(sessionId: string): Promise<void>;
   deleteAllTranscribedAudio(transcribedSessionIds: string[]): Promise<void>;
   clearAll(): Promise<void>;
   getStorageEstimate(): Promise<{ usedBytes: number; quotaBytes: number }>;
+}
+
+export interface IPatientFileStore {
+  getAll(workspaceId: string): Promise<PatientFileAttachment[]>;
+  getByPatientId(workspaceId: string, patientId: string): Promise<PatientFileAttachment[]>;
+  add(file: PatientFileAttachment): Promise<void>;
+  delete(id: string): Promise<void>;
 }
 
 export interface IGlossaryRepository {

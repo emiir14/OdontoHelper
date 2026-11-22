@@ -2,6 +2,7 @@ import { DEFAULT_DENTAL_GLOSSARY } from '../../../config/glossary';
 import {
   IAuthProvider,
   IGlossaryRepository,
+  IPatientFileStore,
   ISessionRepository,
   ISettingsRepository,
   ITranscriptRepository,
@@ -31,8 +32,14 @@ import {
   LabOrderStatus,
   ModelTier,
   OdontogramRecord,
+  PaidSubscriptionPlanTier,
   Patient,
   PatientAnamnesis,
+  PatientFileAttachment,
+  PatientFileCategory,
+  PatientShareLink,
+  PatientSharePreview,
+  PatientShareStatus,
   PaymentMethod,
   PeriodontogramRecord,
   PeriodontogramToothData,
@@ -41,14 +48,20 @@ import {
   ProviderCategory,
   Session,
   SessionStatus,
+  SubscriptionBillingCycle,
+  SubscriptionPlanTier,
+  SubscriptionStatus,
+  SubscriptionTransferRequest,
   ToothRecord,
   TranscriptSegment,
   TranscriptionMode,
   TransactionType,
+  TransferRequestStatus,
   TreatmentItem,
   TreatmentPlan,
   TreatmentPlanStatus,
   Workspace,
+  WorkspaceSubscription,
 } from '../../core/types';
 import { getSupabaseClient } from './supabaseClient';
 
@@ -99,6 +112,10 @@ function mapSession(row: Record<string, unknown>): Session {
     consentGiven: Boolean(row.consent_given),
     modelTierUsed: (row.model_tier_used as ModelTier | null) ?? undefined,
     audioDeleted: Boolean(row.audio_deleted),
+    audioFileName: (row.audio_file_name as string | null) ?? undefined,
+    recordedDeviceId: (row.recorded_device_id as string | null) ?? undefined,
+    recordedDeviceLabel: (row.recorded_device_label as string | null) ?? undefined,
+    audioCloudStatus: (row.audio_cloud_status as Session['audioCloudStatus'] | null) ?? undefined,
     clinicalNote: (row.clinical_note as ClinicalNote | null) ?? undefined,
     error: (row.error as string | null) ?? undefined,
     createdAt: Number(row.created_at),
@@ -133,9 +150,23 @@ function setStoredCurrencyFallback(workspaceId: string, currency?: CurrencyCode)
   localStorage.setItem(`odontohelper_currency_${workspaceId}`, currency);
 }
 
+function getStoredShowCurrencyFallback(workspaceId: string): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  return localStorage.getItem(`odontohelper_show_currency_${workspaceId}`) === '1';
+}
+
+function setStoredShowCurrencyFallback(workspaceId: string, show?: boolean): void {
+  if (typeof localStorage === 'undefined' || show === undefined) return;
+  localStorage.setItem(`odontohelper_show_currency_${workspaceId}`, show ? '1' : '0');
+}
+
 function mapSettings(row: Record<string, unknown>): AppSettings {
   const wsId = String(row.workspace_id);
   const currency = (row.currency as CurrencyCode | undefined) || getStoredCurrencyFallback(wsId);
+  const showCurrencyCode =
+    row.show_currency_code !== undefined && row.show_currency_code !== null
+      ? Boolean(row.show_currency_code)
+      : getStoredShowCurrencyFallback(wsId);
   return {
     id: String(row.id),
     workspaceId: wsId,
@@ -148,6 +179,10 @@ function mapSettings(row: Record<string, unknown>): AppSettings {
     transcriptionMode: (row.transcription_mode as TranscriptionMode) || 'dental',
     theme: (row.theme as AppSettings['theme']) || 'light',
     currency,
+    showCurrencyCode,
+    audioCloudTier:
+      row.audio_cloud_tier === 'premium_audio' ? 'premium_audio' : 'free',
+    audioCloudAutoSync: Boolean(row.audio_cloud_auto_sync),
     updatedAt: Number(row.updated_at),
   };
 }
@@ -266,7 +301,6 @@ function mapProfessional(row: Record<string, unknown>): ClinicProfessional {
     phone: (row.phone as string | null) ?? undefined,
     role: (row.role as ClinicRole) || 'odontologo',
     agendaColor: String(row.agenda_color || '#0d9488'),
-    pinCode: (row.pin_code as string | null) ?? undefined,
     canViewFinance: row.can_view_finance !== false,
     active: row.active !== false,
     createdAt: Number(row.created_at),
@@ -287,8 +321,8 @@ function mapEvolution(row: Record<string, unknown>): ClinicalEvolutionEntry {
     highlightColor: (row.highlight_color as EvolutionHighlightColor) || 'default',
     professionalId: (row.professional_id as string | null) ?? undefined,
     professionalName: (row.professional_name as string | null) ?? undefined,
-    signedWithPin: Boolean(row.signed_with_pin),
-    signedAt: row.signed_at != null ? Number(row.signed_at) : undefined,
+    authorUserId: (row.author_user_id as string | null) ?? undefined,
+    authorWorkspaceId: (row.author_workspace_id as string | null) ?? undefined,
     sourceSessionId: (row.source_session_id as string | null) ?? undefined,
     sourceTreatmentPlanId: (row.source_treatment_plan_id as string | null) ?? undefined,
     createdAt: Number(row.created_at),
@@ -307,6 +341,8 @@ function mapOdontogram(row: Record<string, unknown>): OdontogramRecord {
     teeth: ((row.teeth as Record<string, ToothRecord> | null) || {}),
     notes: (row.notes as string | null) ?? undefined,
     createdBy: (row.created_by as string | null) ?? undefined,
+    authorUserId: (row.author_user_id as string | null) ?? undefined,
+    authorWorkspaceId: (row.author_workspace_id as string | null) ?? undefined,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     deletedAt: row.deleted_at != null ? Number(row.deleted_at) : null,
@@ -322,6 +358,8 @@ function mapPeriodontogram(row: Record<string, unknown>): PeriodontogramRecord {
     teeth: ((row.teeth as Record<string, PeriodontogramToothData> | null) || {}),
     notes: (row.notes as string | null) ?? undefined,
     createdBy: (row.created_by as string | null) ?? undefined,
+    authorUserId: (row.author_user_id as string | null) ?? undefined,
+    authorWorkspaceId: (row.author_workspace_id as string | null) ?? undefined,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     deletedAt: row.deleted_at != null ? Number(row.deleted_at) : null,
@@ -514,7 +552,7 @@ export class SupabaseSessionRepository implements ISessionRepository {
 
   public async create(session: Session): Promise<void> {
     const supabase = requireClient();
-    const { error } = await supabase.from('sessions').upsert({
+    const row: Record<string, unknown> = {
       id: session.id,
       workspace_id: session.workspaceId,
       title: session.title,
@@ -526,13 +564,34 @@ export class SupabaseSessionRepository implements ISessionRepository {
       consent_given: session.consentGiven,
       model_tier_used: session.modelTierUsed ?? null,
       audio_deleted: session.audioDeleted,
+      audio_file_name: session.audioFileName ?? null,
+      recorded_device_id: session.recordedDeviceId ?? null,
+      recorded_device_label: session.recordedDeviceLabel ?? null,
+      audio_cloud_status: session.audioCloudStatus ?? 'local_only',
       clinical_note: session.clinicalNote ?? null,
       error: session.error ?? null,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
       deleted_at: session.deletedAt ?? null,
-    });
-    if (error) throw error;
+    };
+    const { error } = await supabase.from('sessions').upsert(row);
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (
+        msg.includes('audio_file_name') ||
+        msg.includes('recorded_device') ||
+        msg.includes('audio_cloud_status')
+      ) {
+        delete row.audio_file_name;
+        delete row.recorded_device_id;
+        delete row.recorded_device_label;
+        delete row.audio_cloud_status;
+        const { error: retryErr } = await supabase.from('sessions').upsert(row);
+        if (retryErr) throw retryErr;
+        return;
+      }
+      throw error;
+    }
   }
 
   public async update(id: string, patch: Partial<Session>): Promise<void> {
@@ -547,12 +606,38 @@ export class SupabaseSessionRepository implements ISessionRepository {
     if (patch.consentGiven !== undefined) payload.consent_given = patch.consentGiven;
     if (patch.modelTierUsed !== undefined) payload.model_tier_used = patch.modelTierUsed ?? null;
     if (patch.audioDeleted !== undefined) payload.audio_deleted = patch.audioDeleted;
+    if (patch.audioFileName !== undefined) payload.audio_file_name = patch.audioFileName ?? null;
+    if (patch.recordedDeviceId !== undefined) {
+      payload.recorded_device_id = patch.recordedDeviceId ?? null;
+    }
+    if (patch.recordedDeviceLabel !== undefined) {
+      payload.recorded_device_label = patch.recordedDeviceLabel ?? null;
+    }
+    if (patch.audioCloudStatus !== undefined) {
+      payload.audio_cloud_status = patch.audioCloudStatus ?? 'local_only';
+    }
     if (patch.clinicalNote !== undefined) payload.clinical_note = patch.clinicalNote ?? null;
     if (patch.error !== undefined) payload.error = patch.error ?? null;
     if (patch.deletedAt !== undefined) payload.deleted_at = patch.deletedAt ?? null;
 
     const { error } = await supabase.from('sessions').update(payload).eq('id', id);
-    if (error) throw error;
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (
+        msg.includes('audio_file_name') ||
+        msg.includes('recorded_device') ||
+        msg.includes('audio_cloud_status')
+      ) {
+        delete payload.audio_file_name;
+        delete payload.recorded_device_id;
+        delete payload.recorded_device_label;
+        delete payload.audio_cloud_status;
+        const { error: retryErr } = await supabase.from('sessions').update(payload).eq('id', id);
+        if (retryErr) throw retryErr;
+        return;
+      }
+      throw error;
+    }
   }
 
   public async delete(id: string): Promise<void> {
@@ -672,6 +757,9 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       transcriptionMode: 'dental',
       theme: 'light',
       currency: getStoredCurrencyFallback(workspaceId),
+      showCurrencyCode: getStoredShowCurrencyFallback(workspaceId),
+      audioCloudTier: 'free',
+      audioCloudAutoSync: false,
       updatedAt: Date.now(),
     };
 
@@ -687,13 +775,24 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       transcription_mode: defaults.transcriptionMode,
       theme: defaults.theme,
       currency: defaults.currency,
+      show_currency_code: Boolean(defaults.showCurrencyCode),
+      audio_cloud_tier: defaults.audioCloudTier,
+      audio_cloud_auto_sync: Boolean(defaults.audioCloudAutoSync),
       updated_at: defaults.updatedAt,
     };
 
     const { error: insertErr } = await supabase.from('settings').upsert(row);
     if (insertErr) {
-      if (String(insertErr.message || '').toLowerCase().includes('currency')) {
+      const msg = String(insertErr.message || '').toLowerCase();
+      if (
+        msg.includes('currency') ||
+        msg.includes('show_currency_code') ||
+        msg.includes('audio_cloud_')
+      ) {
         delete row.currency;
+        delete row.show_currency_code;
+        delete row.audio_cloud_tier;
+        delete row.audio_cloud_auto_sync;
         const { error: retryErr } = await supabase.from('settings').upsert(row);
         if (retryErr) throw retryErr;
       } else {
@@ -727,11 +826,29 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       payload.currency = patch.currency;
       setStoredCurrencyFallback(workspaceId, patch.currency);
     }
+    if (patch.showCurrencyCode !== undefined) {
+      payload.show_currency_code = patch.showCurrencyCode;
+      setStoredShowCurrencyFallback(workspaceId, patch.showCurrencyCode);
+    }
+    if (patch.audioCloudTier !== undefined) {
+      payload.audio_cloud_tier = patch.audioCloudTier;
+    }
+    if (patch.audioCloudAutoSync !== undefined) {
+      payload.audio_cloud_auto_sync = patch.audioCloudAutoSync;
+    }
 
     const { error } = await supabase.from('settings').update(payload).eq('id', current.id);
     if (error) {
-      if (String(error.message || '').toLowerCase().includes('currency')) {
+      const msg = String(error.message || '').toLowerCase();
+      if (
+        msg.includes('currency') ||
+        msg.includes('show_currency_code') ||
+        msg.includes('audio_cloud_')
+      ) {
         delete payload.currency;
+        delete payload.show_currency_code;
+        delete payload.audio_cloud_tier;
+        delete payload.audio_cloud_auto_sync;
         if (Object.keys(payload).length > 1) {
           const { error: retryErr } = await supabase
             .from('settings')
@@ -814,12 +931,11 @@ export class SupabaseGlossaryRepository implements IGlossaryRepository {
  * ============================================================================ */
 
 export class SupabasePatientRepository {
-  public async getAll(workspaceId: string): Promise<Patient[]> {
+  public async getAll(_workspaceId: string): Promise<Patient[]> {
     const supabase = requireClient();
     const { data, error } = await supabase
       .from('patients')
       .select('*')
-      .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('updated_at', { ascending: false });
     if (error) throw error;
@@ -1126,7 +1242,6 @@ export class SupabaseProfessionalRepository {
       phone: prof.phone ?? null,
       role: prof.role,
       agenda_color: prof.agendaColor,
-      pin_code: prof.pinCode ?? null,
       can_view_finance: prof.canViewFinance,
       active: prof.active,
       created_at: prof.createdAt,
@@ -1146,7 +1261,6 @@ export class SupabaseProfessionalRepository {
     if (patch.phone !== undefined) payload.phone = patch.phone ?? null;
     if (patch.role !== undefined) payload.role = patch.role;
     if (patch.agendaColor !== undefined) payload.agenda_color = patch.agendaColor;
-    if (patch.pinCode !== undefined) payload.pin_code = patch.pinCode ?? null;
     if (patch.canViewFinance !== undefined) payload.can_view_finance = patch.canViewFinance;
     if (patch.active !== undefined) payload.active = patch.active;
     if (patch.deletedAt !== undefined) payload.deleted_at = patch.deletedAt ?? null;
@@ -1160,12 +1274,11 @@ export class SupabaseProfessionalRepository {
 }
 
 export class SupabaseEvolutionRepository {
-  public async getAll(workspaceId: string): Promise<ClinicalEvolutionEntry[]> {
+  public async getAll(_workspaceId: string): Promise<ClinicalEvolutionEntry[]> {
     const supabase = requireClient();
     const { data, error } = await supabase
       .from('clinical_evolutions')
       .select('*')
-      .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -1174,7 +1287,7 @@ export class SupabaseEvolutionRepository {
 
   public async create(entry: ClinicalEvolutionEntry): Promise<void> {
     const supabase = requireClient();
-    const { error } = await supabase.from('clinical_evolutions').upsert({
+    const row: Record<string, unknown> = {
       id: entry.id,
       workspace_id: entry.workspaceId,
       patient_id: entry.patientId,
@@ -1185,14 +1298,15 @@ export class SupabaseEvolutionRepository {
       highlight_color: entry.highlightColor,
       professional_id: entry.professionalId ?? null,
       professional_name: entry.professionalName ?? null,
-      signed_with_pin: entry.signedWithPin,
-      signed_at: entry.signedAt ?? null,
       source_session_id: entry.sourceSessionId ?? null,
       source_treatment_plan_id: entry.sourceTreatmentPlanId ?? null,
       created_at: entry.createdAt,
       updated_at: entry.updatedAt,
       deleted_at: entry.deletedAt ?? null,
-    });
+    };
+    if (entry.authorUserId) row.author_user_id = entry.authorUserId;
+    if (entry.authorWorkspaceId) row.author_workspace_id = entry.authorWorkspaceId;
+    const { error } = await supabase.from('clinical_evolutions').upsert(row);
     if (error) throw error;
   }
 
@@ -1204,8 +1318,6 @@ export class SupabaseEvolutionRepository {
     if (patch.procedure !== undefined) payload.procedure = patch.procedure;
     if (patch.description !== undefined) payload.description = patch.description;
     if (patch.highlightColor !== undefined) payload.highlight_color = patch.highlightColor;
-    if (patch.signedWithPin !== undefined) payload.signed_with_pin = patch.signedWithPin;
-    if (patch.signedAt !== undefined) payload.signed_at = patch.signedAt ?? null;
     if (patch.deletedAt !== undefined) payload.deleted_at = patch.deletedAt ?? null;
     const { error } = await supabase.from('clinical_evolutions').update(payload).eq('id', id);
     if (error) throw error;
@@ -1217,12 +1329,11 @@ export class SupabaseEvolutionRepository {
 }
 
 export class SupabaseOdontogramRepository {
-  public async getAll(workspaceId: string): Promise<OdontogramRecord[]> {
+  public async getAll(_workspaceId: string): Promise<OdontogramRecord[]> {
     const supabase = requireClient();
     const { data, error } = await supabase
       .from('odontograms')
       .select('*')
-      .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -1231,7 +1342,7 @@ export class SupabaseOdontogramRepository {
 
   public async create(rec: OdontogramRecord): Promise<void> {
     const supabase = requireClient();
-    const { error } = await supabase.from('odontograms').upsert({
+    const row: Record<string, unknown> = {
       id: rec.id,
       workspace_id: rec.workspaceId,
       patient_id: rec.patientId,
@@ -1243,7 +1354,10 @@ export class SupabaseOdontogramRepository {
       created_at: rec.createdAt,
       updated_at: rec.updatedAt,
       deleted_at: rec.deletedAt ?? null,
-    });
+    };
+    if (rec.authorUserId) row.author_user_id = rec.authorUserId;
+    if (rec.authorWorkspaceId) row.author_workspace_id = rec.authorWorkspaceId;
+    const { error } = await supabase.from('odontograms').upsert(row);
     if (error) throw error;
   }
 
@@ -1265,12 +1379,11 @@ export class SupabaseOdontogramRepository {
 }
 
 export class SupabasePeriodontogramRepository {
-  public async getAll(workspaceId: string): Promise<PeriodontogramRecord[]> {
+  public async getAll(_workspaceId: string): Promise<PeriodontogramRecord[]> {
     const supabase = requireClient();
     const { data, error } = await supabase
       .from('periodontograms')
       .select('*')
-      .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -1279,7 +1392,7 @@ export class SupabasePeriodontogramRepository {
 
   public async create(rec: PeriodontogramRecord): Promise<void> {
     const supabase = requireClient();
-    const { error } = await supabase.from('periodontograms').upsert({
+    const row: Record<string, unknown> = {
       id: rec.id,
       workspace_id: rec.workspaceId,
       patient_id: rec.patientId,
@@ -1290,7 +1403,10 @@ export class SupabasePeriodontogramRepository {
       created_at: rec.createdAt,
       updated_at: rec.updatedAt,
       deleted_at: rec.deletedAt ?? null,
-    });
+    };
+    if (rec.authorUserId) row.author_user_id = rec.authorUserId;
+    if (rec.authorWorkspaceId) row.author_workspace_id = rec.authorWorkspaceId;
+    const { error } = await supabase.from('periodontograms').upsert(row);
     if (error) throw error;
   }
 
@@ -1466,19 +1582,21 @@ export class SupabaseLabOrderRepository {
   public async update(id: string, patch: Partial<LabOrder>): Promise<void> {
     const supabase = requireClient();
     const payload: Record<string, unknown> = { updated_at: Date.now() };
-    if (patch.providerId !== undefined) payload.provider_id = patch.providerId ?? null;
-    if (patch.providerName !== undefined) payload.provider_name = patch.providerName ?? null;
-    if (patch.workType !== undefined) payload.work_type = patch.workType;
-    if (patch.toothFdi !== undefined) payload.tooth_fdi = patch.toothFdi ?? null;
-    if (patch.shade !== undefined) payload.shade = patch.shade ?? null;
-    if (patch.sentDate !== undefined) payload.sent_date = patch.sentDate ?? null;
-    if (patch.dueDate !== undefined) payload.due_date = patch.dueDate ?? null;
-    if (patch.receivedDate !== undefined) payload.received_date = patch.receivedDate ?? null;
-    if (patch.cost !== undefined) payload.cost = patch.cost ?? null;
-    if (patch.currency !== undefined) payload.currency = patch.currency;
-    if (patch.status !== undefined) payload.status = patch.status;
-    if (patch.notes !== undefined) payload.notes = patch.notes ?? null;
-    if (patch.deletedAt !== undefined) payload.deleted_at = patch.deletedAt ?? null;
+    if ('patientId' in patch) payload.patient_id = patch.patientId ?? null;
+    if ('patientName' in patch && patch.patientName !== undefined) payload.patient_name = patch.patientName;
+    if ('providerId' in patch) payload.provider_id = patch.providerId ?? null;
+    if ('providerName' in patch) payload.provider_name = patch.providerName ?? null;
+    if ('workType' in patch && patch.workType !== undefined) payload.work_type = patch.workType;
+    if ('toothFdi' in patch) payload.tooth_fdi = patch.toothFdi ?? null;
+    if ('shade' in patch) payload.shade = patch.shade ?? null;
+    if ('sentDate' in patch) payload.sent_date = patch.sentDate ?? null;
+    if ('dueDate' in patch) payload.due_date = patch.dueDate ?? null;
+    if ('receivedDate' in patch) payload.received_date = patch.receivedDate ?? null;
+    if ('cost' in patch) payload.cost = patch.cost ?? null;
+    if ('currency' in patch && patch.currency !== undefined) payload.currency = patch.currency;
+    if ('status' in patch && patch.status !== undefined) payload.status = patch.status;
+    if ('notes' in patch) payload.notes = patch.notes ?? null;
+    if ('deletedAt' in patch) payload.deleted_at = patch.deletedAt ?? null;
     const { error } = await supabase.from('lab_orders').update(payload).eq('id', id);
     if (error) throw error;
   }
@@ -1487,3 +1605,470 @@ export class SupabaseLabOrderRepository {
     await this.update(id, { deletedAt: Date.now() });
   }
 }
+
+const PATIENT_FILES_BUCKET = 'patient-files';
+
+function mapPatientFile(row: Record<string, unknown>): PatientFileAttachment {
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    patientId: String(row.patient_id),
+    name: String(row.name),
+    category: (row.category as PatientFileCategory) || 'radiografia',
+    mimeType: String(row.mime_type || 'application/octet-stream'),
+    sizeBytes: Number(row.size_bytes || 0),
+    dataUrl: String(row.data_url || ''),
+    storagePath: (row.storage_path as string | null) ?? undefined,
+    notes: (row.notes as string | null) ?? undefined,
+    uploadedBy: (row.uploaded_by as string | null) ?? undefined,
+    authorUserId: (row.author_user_id as string | null) ?? undefined,
+    authorWorkspaceId: (row.author_workspace_id as string | null) ?? undefined,
+    capturedAt: String(row.captured_at || ''),
+    createdAt: Number(row.created_at),
+  };
+}
+
+function isMissingPatientFilesTable(error: unknown): boolean {
+  const msg =
+    error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message || '').toLowerCase()
+      : '';
+  return (
+    msg.includes('patient_files') &&
+    (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache'))
+  );
+}
+
+function buildMissingTableError(): Error {
+  return new Error(
+    "La tabla 'patient_files' no existe en Supabase. Ejecutá el esquema SQL para almacenar radiografías y archivos clínicos en la nube."
+  );
+}
+
+function dataUrlToBlob(dataUrl: string, fallbackMime: string): Blob | null {
+  const match = /^data:([^;,]+)?;base64,(.+)$/i.exec(dataUrl);
+  if (!match) return null;
+  const mime = match[1] || fallbackMime || 'application/octet-stream';
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+function sanitizeStorageExt(name: string, mimeType: string): string {
+  const dotIdx = name.lastIndexOf('.');
+  if (dotIdx >= 0) {
+    const ext = name.slice(dotIdx + 1).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (ext) return ext;
+  }
+  if (mimeType.includes('png')) return 'png';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+  if (mimeType.includes('webp')) return 'webp';
+  if (mimeType.includes('pdf')) return 'pdf';
+  return 'bin';
+}
+
+async function resolveStorageSignedUrls(
+  supabase: ReturnType<typeof requireClient>,
+  files: PatientFileAttachment[]
+): Promise<PatientFileAttachment[]> {
+  if (!supabase.storage || typeof supabase.storage.from !== 'function') {
+    return files;
+  }
+  const pathsNeedingUrl = files
+    .filter((f) => Boolean(f.storagePath) && !f.dataUrl)
+    .map((f) => f.storagePath!);
+  if (pathsNeedingUrl.length === 0) return files;
+
+  try {
+    const bucket = supabase.storage.from(PATIENT_FILES_BUCKET);
+    if (typeof bucket.createSignedUrls === 'function') {
+      const { data } = await bucket.createSignedUrls(pathsNeedingUrl, 3600);
+      if (Array.isArray(data)) {
+        const urlMap = new Map<string, string>();
+        data.forEach((entry: { path?: string | null; signedUrl?: string | null }) => {
+          if (entry?.path && entry?.signedUrl) {
+            urlMap.set(entry.path, entry.signedUrl);
+          }
+        });
+        return files.map((f) =>
+          f.storagePath && !f.dataUrl && urlMap.has(f.storagePath)
+            ? { ...f, dataUrl: urlMap.get(f.storagePath)! }
+            : f
+        );
+      }
+    }
+  } catch {
+    // Keep existing metadata if signed URL batch fails
+  }
+  return files;
+}
+
+/**
+ * Radiographs, clinical photos, and patient documents MUST live in Supabase
+ * (`patient_files` + Supabase Storage bucket `patient-files`).
+ * Never falls back to IndexedDB so files are always stored exclusively in the cloud.
+ */
+export class SupabasePatientFileStore implements IPatientFileStore {
+  public async getAll(_workspaceId: string): Promise<PatientFileAttachment[]> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from('patient_files')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      if (isMissingPatientFilesTable(error)) {
+        throw buildMissingTableError();
+      }
+      throw error;
+    }
+    return resolveStorageSignedUrls(supabase, (data || []).map(mapPatientFile));
+  }
+
+  public async getByPatientId(
+    _workspaceId: string,
+    patientId: string
+  ): Promise<PatientFileAttachment[]> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from('patient_files')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      if (isMissingPatientFilesTable(error)) {
+        throw buildMissingTableError();
+      }
+      throw error;
+    }
+    return resolveStorageSignedUrls(supabase, (data || []).map(mapPatientFile));
+  }
+
+  public async add(file: PatientFileAttachment): Promise<void> {
+    const supabase = requireClient();
+    let storagePath: string | undefined = file.storagePath;
+    let persistedDataUrl = file.dataUrl;
+
+    // Prefer Supabase Storage for binary blobs so Postgres rows remain lightweight
+    if (
+      !storagePath &&
+      file.dataUrl.startsWith('data:') &&
+      supabase.storage &&
+      typeof supabase.storage.from === 'function'
+    ) {
+      const blob = dataUrlToBlob(file.dataUrl, file.mimeType);
+      if (blob) {
+        const ext = sanitizeStorageExt(file.name, file.mimeType);
+        const candidatePath = `${file.workspaceId}/${file.patientId}/${file.id}.${ext}`;
+        const bucket = supabase.storage.from(PATIENT_FILES_BUCKET);
+        const { error: uploadErr } = await bucket.upload(candidatePath, blob, {
+          contentType: file.mimeType || 'application/octet-stream',
+          upsert: true,
+        });
+        if (!uploadErr) {
+          storagePath = candidatePath;
+          persistedDataUrl = '';
+          file.storagePath = candidatePath;
+          const { data: signed } = await bucket.createSignedUrl(candidatePath, 3600);
+          if (signed?.signedUrl) {
+            file.dataUrl = signed.signedUrl;
+          }
+        }
+      }
+    }
+
+    const rowPayload: Record<string, unknown> = {
+      id: file.id,
+      workspace_id: file.workspaceId,
+      patient_id: file.patientId,
+      name: file.name,
+      category: file.category,
+      mime_type: file.mimeType,
+      size_bytes: file.sizeBytes,
+      data_url: persistedDataUrl,
+      notes: file.notes ?? null,
+      captured_at: file.capturedAt,
+      created_at: file.createdAt,
+    };
+    if (file.uploadedBy) rowPayload.uploaded_by = file.uploadedBy;
+    if (file.authorUserId) rowPayload.author_user_id = file.authorUserId;
+    if (file.authorWorkspaceId) rowPayload.author_workspace_id = file.authorWorkspaceId;
+    if (storagePath) {
+      rowPayload.storage_path = storagePath;
+    }
+
+    const { error } = await supabase.from('patient_files').upsert(rowPayload);
+    if (error) {
+      if (isMissingPatientFilesTable(error)) {
+        throw buildMissingTableError();
+      }
+      throw error;
+    }
+  }
+
+  public async delete(id: string): Promise<void> {
+    const supabase = requireClient();
+    let storagePathToRemove: string | null = null;
+    if (supabase.storage && typeof supabase.storage.from === 'function') {
+      const { data: existing } = await supabase
+        .from('patient_files')
+        .select('storage_path')
+        .eq('id', id)
+        .maybeSingle();
+      storagePathToRemove = (existing?.storage_path as string | null) ?? null;
+    }
+
+    const { error } = await supabase.from('patient_files').delete().eq('id', id);
+    if (error) {
+      if (isMissingPatientFilesTable(error)) {
+        throw buildMissingTableError();
+      }
+      throw error;
+    }
+
+    if (storagePathToRemove && supabase.storage && typeof supabase.storage.from === 'function') {
+      await supabase.storage
+        .from(PATIENT_FILES_BUCKET)
+        .remove([storagePathToRemove])
+        .catch(() => {});
+    }
+  }
+}
+
+/* ============================================================================
+ * Colleague Patient Sharing (Single-use WhatsApp Invites & Permanent Links)
+ * ============================================================================ */
+
+function mapPatientShare(row: Record<string, unknown>): PatientShareLink {
+  return {
+    id: String(row.id),
+    ownerWorkspaceId: String(row.owner_workspace_id),
+    ownerUserId: (row.owner_user_id as string | null) ?? undefined,
+    ownerName: String(row.owner_name),
+    ownerSpecialty: (row.owner_specialty as string | null) ?? undefined,
+    ownerLicense: (row.owner_license as string | null) ?? undefined,
+    patientId: String(row.patient_id),
+    patientNameSnapshot: String(row.patient_name_snapshot),
+    inviteToken: String(row.invite_token),
+    referralNote: (row.referral_note as string | null) ?? undefined,
+    status: (row.status as PatientShareStatus) || 'pending',
+    recipientWorkspaceId: (row.recipient_workspace_id as string | null) ?? undefined,
+    recipientUserId: (row.recipient_user_id as string | null) ?? undefined,
+    recipientName: (row.recipient_name as string | null) ?? undefined,
+    recipientSpecialty: (row.recipient_specialty as string | null) ?? undefined,
+    recipientLicense: (row.recipient_license as string | null) ?? undefined,
+    acceptedAt: row.accepted_at != null ? Number(row.accepted_at) : undefined,
+    revokedAt: row.revoked_at != null ? Number(row.revoked_at) : undefined,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+export class SupabasePatientShareRepository {
+  public async getAllForWorkspace(_workspaceId: string): Promise<PatientShareLink[]> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from('patient_shares')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('patient_shares') && (msg.includes('does not exist') || msg.includes('schema cache'))) {
+        return [];
+      }
+      throw error;
+    }
+    return (data || []).map(mapPatientShare);
+  }
+
+  public async create(share: PatientShareLink): Promise<void> {
+    const supabase = requireClient();
+    const { error } = await supabase.from('patient_shares').insert({
+      id: share.id,
+      owner_workspace_id: share.ownerWorkspaceId,
+      owner_user_id: share.ownerUserId,
+      owner_name: share.ownerName,
+      owner_specialty: share.ownerSpecialty ?? null,
+      owner_license: share.ownerLicense ?? null,
+      patient_id: share.patientId,
+      patient_name_snapshot: share.patientNameSnapshot,
+      invite_token: share.inviteToken,
+      referral_note: share.referralNote ?? null,
+      status: share.status,
+      created_at: share.createdAt,
+      updated_at: share.updatedAt,
+    });
+    if (error) throw error;
+  }
+
+  public async getPreviewByToken(
+    token: string,
+    _callerWorkspaceId?: string
+  ): Promise<PatientSharePreview | null> {
+    const supabase = requireClient();
+    const { data, error } = await supabase.rpc('get_patient_share_preview', {
+      p_token: token,
+    });
+    if (error) throw error;
+    if (!data || typeof data !== 'object') return null;
+    const raw = data as Record<string, unknown>;
+    return {
+      id: String(raw.id),
+      ownerName: String(raw.ownerName || ''),
+      ownerSpecialty: (raw.ownerSpecialty as string | null) ?? undefined,
+      ownerLicense: (raw.ownerLicense as string | null) ?? undefined,
+      patientId: String(raw.patientId),
+      patientNameSnapshot: String(raw.patientNameSnapshot || ''),
+      referralNote: (raw.referralNote as string | null) ?? undefined,
+      status: (raw.status as PatientShareStatus) || 'pending',
+      createdAt: Number(raw.createdAt || Date.now()),
+      isOwnShare: Boolean(raw.isOwnShare),
+    };
+  }
+
+  public async acceptShare(input: {
+    token: string;
+    recipientWorkspaceId: string;
+    recipientUserId?: string;
+    recipientName: string;
+    recipientSpecialty?: string;
+    recipientLicense?: string;
+  }): Promise<{ id: string; patientId: string; ownerWorkspaceId: string }> {
+    const supabase = requireClient();
+    const { data, error } = await supabase.rpc('accept_patient_share', {
+      p_token: input.token,
+      p_recipient_ws: input.recipientWorkspaceId,
+      p_recipient_name: input.recipientName,
+      p_recipient_specialty: input.recipientSpecialty ?? null,
+      p_recipient_license: input.recipientLicense ?? null,
+    });
+    if (error) throw error;
+    const raw = (data || {}) as Record<string, unknown>;
+    return {
+      id: String(raw.id || ''),
+      patientId: String(raw.patientId || ''),
+      ownerWorkspaceId: String(raw.ownerWorkspaceId || ''),
+    };
+  }
+
+  public async unlinkShare(shareId: string): Promise<void> {
+    const supabase = requireClient();
+    const { error } = await supabase.rpc('unlink_patient_share', {
+      p_share_id: shareId,
+    });
+    if (error) throw error;
+  }
+}
+
+/* ============================================================================
+ * Workspace Subscriptions & Bank Transfer Activation Requests
+ * ============================================================================ */
+
+function mapWorkspaceSubscription(row: Record<string, unknown>): WorkspaceSubscription {
+  return {
+    workspaceId: String(row.workspace_id),
+    planTier: (row.plan_tier as SubscriptionPlanTier) || 'trial',
+    billingCycle: (row.billing_cycle as SubscriptionBillingCycle) || 'monthly',
+    status: (row.status as SubscriptionStatus) || 'trialing',
+    trialStartsAt: Number(row.trial_starts_at),
+    trialEndsAt: Number(row.trial_ends_at),
+    currentPeriodStart: row.current_period_start != null ? Number(row.current_period_start) : undefined,
+    currentPeriodEnd: row.current_period_end != null ? Number(row.current_period_end) : undefined,
+    lastPaymentMethod: 'bank_transfer',
+    pendingTransferId: (row.pending_transfer_id as string | null) ?? undefined,
+    notes: (row.notes as string | null) ?? undefined,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+function mapTransferRequest(row: Record<string, unknown>): SubscriptionTransferRequest {
+  return {
+    id: String(row.id),
+    workspaceId: String(row.workspace_id),
+    userId: (row.user_id as string | null) ?? undefined,
+    requestedTier: (row.requested_tier as PaidSubscriptionPlanTier) || 'base',
+    billingCycle: (row.billing_cycle as SubscriptionBillingCycle) || 'monthly',
+    amountUsd: Number(row.amount_usd || 0),
+    payerName: String(row.payer_name),
+    bankName: String(row.bank_name),
+    transferReference: String(row.transfer_reference),
+    notes: (row.notes as string | null) ?? undefined,
+    status: (row.status as TransferRequestStatus) || 'pending',
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+export class SupabaseSubscriptionRepository {
+  public async getForWorkspace(workspaceId: string): Promise<WorkspaceSubscription | null> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from('workspace_subscriptions')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('workspace_subscriptions') && (msg.includes('does not exist') || msg.includes('schema cache'))) {
+        return null;
+      }
+      throw error;
+    }
+
+    if (data) {
+      return mapWorkspaceSubscription(data);
+    }
+
+    // Fallback idempotent RPC for workspaces created prior to schema upgrade
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('ensure_my_workspace_trial', {
+      p_workspace_id: workspaceId,
+    });
+    if (rpcErr || !rpcData || typeof rpcData !== 'object') {
+      return null;
+    }
+    return mapWorkspaceSubscription(rpcData as Record<string, unknown>);
+  }
+
+  public async listTransferRequests(workspaceId: string): Promise<SubscriptionTransferRequest[]> {
+    const supabase = requireClient();
+    const { data, error } = await supabase
+      .from('subscription_transfer_requests')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('subscription_transfer_requests') && (msg.includes('does not exist') || msg.includes('schema cache'))) {
+        return [];
+      }
+      throw error;
+    }
+    return (data || []).map(mapTransferRequest);
+  }
+
+  public async submitTransferRequest(req: SubscriptionTransferRequest): Promise<void> {
+    const supabase = requireClient();
+    const { error } = await supabase.from('subscription_transfer_requests').insert({
+      id: req.id,
+      workspace_id: req.workspaceId,
+      user_id: req.userId,
+      requested_tier: req.requestedTier,
+      billing_cycle: req.billingCycle,
+      amount_usd: req.amountUsd,
+      payer_name: req.payerName,
+      bank_name: req.bankName,
+      transfer_reference: req.transferReference,
+      notes: req.notes ?? null,
+      status: 'pending',
+      created_at: req.createdAt,
+      updated_at: req.updatedAt,
+    });
+    if (error) throw error;
+  }
+}
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Mic,
   Search,
@@ -11,12 +11,9 @@ import {
   History,
   Settings,
   ChevronDown,
-  ChevronRight,
-  ChevronUp,
   PanelLeftClose,
   PanelLeftOpen,
   X,
-  FileSpreadsheet,
   Wallet,
   FlaskConical,
   BarChart3,
@@ -33,7 +30,12 @@ import {
   Banknote,
   UserCheck,
   CalendarX2,
+  Home,
+  LayoutGrid,
+  Cake,
+  CalendarCheck,
 } from 'lucide-react';
+import { resolvePractitionerDisplay, toLocalIsoDate } from '../core/clinic/clinicHelpers';
 import { REPORT_DEFINITIONS, ReportTypeId } from '../core/clinic/reportEngine';
 import { AppView, useAppStore } from '../store/useAppStore';
 
@@ -64,6 +66,26 @@ const REPORT_ICONS: Record<ReportTypeId, React.ComponentType<{ className?: strin
   pacientes_que_asistieron: UserCheck,
   pacientes_sin_cita: CalendarX2,
 };
+
+const SidebarCollapsible: React.FC<{
+  open: boolean;
+  children: React.ReactNode;
+}> = ({ open, children }) => (
+  <div
+    aria-hidden={!open}
+    className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out ${
+      open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 pointer-events-none'
+    }`}
+  >
+    <div
+      className={`overflow-hidden min-h-0 transition-[visibility] duration-200 ${
+        open ? 'visible' : 'invisible'
+      }`}
+    >
+      {children}
+    </div>
+  </div>
+);
 
 export const OdontoHelperLogo: React.FC<{ collapsed?: boolean }> = ({ collapsed = false }) => (
   <div className="flex items-center gap-2.5 min-w-0">
@@ -108,54 +130,75 @@ export const Sidebar: React.FC<SidebarProps> = ({
     patients,
     providers,
     appointments,
-    treatmentPlans,
     labOrders,
     professionals,
     activeProfessionalId,
-    setActiveProfessional,
-    canAccessFinance,
+    profile,
     selectPatient,
     isRecording,
+    guardNavigation,
   } = useAppStore();
 
+  const practitioner = resolvePractitionerDisplay(professionals, activeProfessionalId, profile);
+
+  const [inicioExpanded, setInicioExpanded] = useState(true);
+  const [reportsExpanded, setReportsExpanded] = useState(false);
   const [toolsExpanded, setToolsExpanded] = useState(true);
-  const [reportsExpanded, setReportsExpanded] = useState(true);
+  const [windowExpanded, setWindowExpanded] = useState(true);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onCloseMobile();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mobileOpen, onCloseMobile]);
 
   const isDictateActive = DICTATE_VIEWS.includes(currentView);
-  const financeAllowed = canAccessFinance();
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = toLocalIsoDate();
   const todayAppointmentsCount = appointments.filter(
-    (a) => a.date === todayStr && a.status !== 'cancelled'
-  ).length;
-  const activePlansCount = treatmentPlans.filter(
-    (p) => !p.deletedAt && p.status !== 'finalizado'
+    (a) => !a.deletedAt && a.date === todayStr && a.status !== 'cancelled'
   ).length;
   const pendingLabCount = labOrders.filter(
     (o) => !o.deletedAt && (o.status === 'sin_enviar' || o.status === 'en_laboratorio')
   ).length;
+  const assignedControlsCount = patients.filter((p) => Boolean(p.nextControlDate)).length;
 
   const handleNavigate = (view: AppView) => {
-    setView(view);
-    onCloseMobile();
+    guardNavigation(() => {
+      setView(view);
+      onCloseMobile();
+    });
   };
 
   const handleSelectReport = (reportId: ReportTypeId) => {
-    setReportType(reportId);
-    onCloseMobile();
+    guardNavigation(() => {
+      setReportType(reportId);
+      onCloseMobile();
+    });
   };
 
   const handleDictateClick = () => {
-    void requestMicrophonePermission();
-    handleNavigate('home');
+    guardNavigation(() => {
+      void requestMicrophonePermission();
+      setView('home');
+      onCloseMobile();
+    });
   };
 
   const navItemClass = (active: boolean) =>
-    `w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-colors min-h-[40px] ${
+    `w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium transition-colors min-h-[38px] cursor-pointer ${
       active
         ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 font-semibold'
         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800/70'
     }`;
+
+  const sectionHeaderClass =
+    'w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg transition-colors cursor-pointer';
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 select-none">
@@ -164,10 +207,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={() => {
-            selectPatient(null);
-            handleNavigate('patients-search');
+            guardNavigation(() => {
+              selectPatient(null);
+              setView('patients-search');
+              onCloseMobile();
+            });
           }}
-          className="text-left focus:outline-hidden rounded-xl"
+          className="text-left focus:outline-hidden rounded-xl cursor-pointer"
           title="OdontoHelper"
         >
           <OdontoHelperLogo collapsed={collapsed} />
@@ -177,7 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
           title={collapsed ? 'Expandir menú' : 'Contraer menú'}
           aria-label={collapsed ? 'Expandir menú' : 'Contraer menú'}
         >
@@ -192,286 +238,231 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <button
           type="button"
           onClick={onCloseMobile}
-          className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
           aria-label="Cerrar menú"
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Top Primary Action: Dictar historia clínica (contains all Escriba recorder & transcription tools) */}
+      {/* Top Premium Action: Dictar historia clínica (Nuestra función exclusiva) */}
       <div className="p-3 border-b border-slate-200/60 dark:border-slate-800/60">
         <button
           type="button"
           onClick={handleDictateClick}
-          title="Dictar historia clínica (solicita acceso al micrófono y abre el grabador local)"
-          className={`w-full flex items-center ${
+          title="Dictar historia clínica (función exclusiva de voz local)"
+          className={`w-full flex items-center gap-2 cursor-pointer ${
             collapsed ? 'justify-center px-2' : 'justify-between px-3.5'
-          } py-2.5 rounded-xl text-[13px] font-semibold transition-all min-h-[44px] whitespace-nowrap ${
+          } py-2.5 rounded-xl text-[13px] font-semibold transition-all min-h-[44px] ${
             isDictateActive
               ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/20'
               : 'bg-teal-50 dark:bg-teal-950/50 text-teal-800 dark:text-teal-200 border border-teal-200/80 dark:border-teal-800/60 hover:bg-teal-100 dark:hover:bg-teal-900/50'
           }`}
         >
-          <span className="flex items-center gap-2.5 min-w-0">
+          <span className="flex items-center gap-2.5 min-w-0 text-left leading-snug">
             <Mic className="w-4 h-4 shrink-0" />
-            {!collapsed && <span className="truncate">Dictar historia clínica</span>}
+            {!collapsed && <span>Dictar historia clínica</span>}
           </span>
           {!collapsed && isRecording && (
-            <span className="text-[11px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-500 text-white">
+            <span className="text-[11px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-500 text-white shrink-0">
               REC
             </span>
           )}
         </button>
       </div>
 
-      {/* Scrollable Navigation Menu */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5 scrollbar-thin">
-        {/* Main Clinical Section */}
+      {/* Scrollable Navigation Menu (Inicio · Reportes · Herramientas · Ventana) */}
+      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-3 scrollbar-thin">
+        {/* 1. INICIO */}
         <div className="space-y-1">
-          {!collapsed && (
-            <div className="px-3 pb-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-              Gestión clínica
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              selectPatient(null);
-              handleNavigate('patients-search');
-            }}
-            title="Buscar paciente"
-            className={navItemClass(currentView === 'patients-search')}
-          >
-            <span className="flex items-center gap-2.5 min-w-0">
-              <Search className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              {!collapsed && <span className="truncate">Buscar paciente</span>}
-            </span>
-            {!collapsed && patients.length > 0 && (
-              <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
-                {patients.length}
+          {!collapsed ? (
+            <button
+              type="button"
+              onClick={() => setInicioExpanded((prev) => !prev)}
+              aria-expanded={inicioExpanded}
+              className={sectionHeaderClass}
+            >
+              <span className="flex items-center gap-2">
+                <Home className="w-3.5 h-3.5 text-slate-400" />
+                <span>Inicio</span>
               </span>
-            )}
-          </button>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                  inicioExpanded ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+          ) : null}
 
-          <button
-            type="button"
-            onClick={() => handleNavigate('patient-new')}
-            title="Nuevo paciente"
-            className={navItemClass(currentView === 'patient-new')}
-          >
-            <span className="flex items-center gap-2.5 min-w-0">
-              <UserPlus className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              {!collapsed && <span className="truncate">Nuevo paciente</span>}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleNavigate('provider-new')}
-            title="Nuevo proveedor"
-            className={navItemClass(currentView === 'provider-new')}
-          >
-            <span className="flex items-center gap-2.5 min-w-0">
-              <Truck className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              {!collapsed && <span className="truncate">Nuevo proveedor</span>}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleNavigate('agenda')}
-            title="Agenda"
-            className={navItemClass(currentView === 'agenda')}
-          >
-            <span className="flex items-center gap-2.5 min-w-0">
-              <CalendarDays className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              {!collapsed && <span className="truncate">Agenda</span>}
-            </span>
-            {!collapsed && todayAppointmentsCount > 0 && (
-              <span className="text-[11px] font-mono tabular-nums text-teal-700 dark:text-teal-300 font-semibold">
-                {todayAppointmentsCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Planes, Laboratorio y Finanzas */}
-        <div className="space-y-1 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-          {!collapsed && (
-            <div className="px-3 pb-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500">
-              Clínica y Gestión
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => handleNavigate('budgets')}
-            title="Presupuestos y tratamientos"
-            className={navItemClass(currentView === 'budgets')}
-          >
-            <span className="flex items-center gap-2.5 min-w-0">
-              <FileSpreadsheet className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              {!collapsed && <span className="truncate">Presupuestos</span>}
-            </span>
-            {!collapsed && activePlansCount > 0 && (
-              <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
-                {activePlansCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handleNavigate('lab')}
-            title="Trabajos de laboratorio"
-            className={navItemClass(currentView === 'lab')}
-          >
-            <span className="flex items-center gap-2.5 min-w-0">
-              <FlaskConical className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-              {!collapsed && <span className="truncate">Laboratorio</span>}
-            </span>
-            {!collapsed && pendingLabCount > 0 && (
-              <span className="text-[11px] font-mono tabular-nums text-amber-600 dark:text-amber-400 font-semibold">
-                {pendingLabCount}
-              </span>
-            )}
-          </button>
-
-          {financeAllowed && (
-            <>
+          <SidebarCollapsible open={inicioExpanded || collapsed}>
+            <div className="space-y-0.5 pt-0.5">
               <button
                 type="button"
-                onClick={() => handleNavigate('finance')}
-                title="Caja diaria, cobros y deudores"
-                className={navItemClass(currentView === 'finance')}
+                onClick={() => {
+                  guardNavigation(() => {
+                    selectPatient(null);
+                    setView('patients-search');
+                    onCloseMobile();
+                  });
+                }}
+                title="Pacientes"
+                className={navItemClass(
+                  currentView === 'patients-search' || currentView === 'manage-patients'
+                )}
               >
                 <span className="flex items-center gap-2.5 min-w-0">
-                  <Wallet className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                  {!collapsed && <span className="truncate">Caja y cobros</span>}
+                  <Search className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Pacientes</span>}
+                </span>
+                {!collapsed && patients.length > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
+                    {patients.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavigate('patient-new')}
+                title="Nuevo Paciente"
+                className={navItemClass(currentView === 'patient-new')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <UserPlus className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Nuevo Paciente</span>}
                 </span>
               </button>
 
-              {/* Reportes Collapsible Section */}
-              <div className="pt-1 space-y-1">
-                {!collapsed ? (
-                  <button
-                    type="button"
-                    onClick={() => setReportsExpanded((prev) => !prev)}
-                    aria-expanded={reportsExpanded}
-                    className={`w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-colors min-h-[40px] ${
-                      currentView === 'reports'
-                        ? 'text-teal-800 dark:text-teal-200 font-semibold bg-teal-50/60 dark:bg-teal-950/30'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800/70'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5 min-w-0">
-                      <FileText className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                      <span className="truncate">Reportes</span>
-                    </span>
-                    {reportsExpanded ? (
-                      <ChevronUp className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                    )}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleNavigate('reports')}
-                    title="Reportes e indicadores"
-                    className={navItemClass(currentView === 'reports')}
-                  >
-                    <span className="flex items-center justify-center w-full">
-                      <FileText className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                    </span>
-                  </button>
-                )}
+              <button
+                type="button"
+                onClick={() => handleNavigate('provider-new')}
+                title="Nuevo Proveedor"
+                className={navItemClass(currentView === 'provider-new')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <Truck className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Nuevo Proveedor</span>}
+                </span>
+              </button>
 
-                {!collapsed && reportsExpanded && (
-                  <div className="pl-2 space-y-0.5">
-                    {REPORT_DEFINITIONS.map((report) => {
-                      const Icon = REPORT_ICONS[report.id];
-                      const isActive =
-                        currentView === 'reports' && activeReportType === report.id;
-                      return (
-                        <button
-                          key={report.id}
-                          type="button"
-                          onClick={() => handleSelectReport(report.id)}
-                          title={report.description}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] leading-snug text-left transition-colors ${
-                            isActive
-                              ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 font-semibold'
-                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800/70 font-medium'
-                          }`}
-                        >
-                          <Icon
-                            className={`w-3.5 h-3.5 shrink-0 ${
-                              isActive
-                                ? 'text-teal-600 dark:text-teal-400'
-                                : 'text-slate-400 dark:text-slate-500'
-                            }`}
-                          />
-                          <span className="flex-1">{report.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+              <button
+                type="button"
+                onClick={() => handleNavigate('agenda')}
+                title="Agenda"
+                className={navItemClass(currentView === 'agenda')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <CalendarDays className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Agenda</span>}
+                </span>
+                {!collapsed && todayAppointmentsCount > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums text-teal-700 dark:text-teal-300 font-semibold">
+                    {todayAppointmentsCount}
+                  </span>
                 )}
-              </div>
+              </button>
+            </div>
+          </SidebarCollapsible>
+        </div>
+
+        {/* 2. REPORTES (Collapsible with exact 16 items) */}
+        <div className="space-y-1 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+          {!collapsed ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setReportsExpanded((prev) => !prev)}
+                aria-expanded={reportsExpanded}
+                className={sectionHeaderClass}
+              >
+                <span className="flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Reportes</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                    reportsExpanded ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              <SidebarCollapsible open={reportsExpanded}>
+                <div className="pl-1 space-y-0.5 pt-0.5">
+                  {REPORT_DEFINITIONS.map((report) => {
+                    const Icon = REPORT_ICONS[report.id];
+                    const isActive = currentView === 'reports' && activeReportType === report.id;
+                    return (
+                      <button
+                        key={report.id}
+                        type="button"
+                        onClick={() => handleSelectReport(report.id)}
+                        title={report.description}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[12.5px] leading-snug text-left transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 font-semibold'
+                            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800/70 font-medium'
+                        }`}
+                      >
+                        <Icon
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            isActive
+                              ? 'text-teal-600 dark:text-teal-400'
+                              : 'text-slate-400 dark:text-slate-500'
+                          }`}
+                        />
+                        <span className="flex-1">{report.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </SidebarCollapsible>
             </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleNavigate('reports')}
+              title="Reportes"
+              className={navItemClass(currentView === 'reports')}
+            >
+              <span className="flex items-center justify-center w-full">
+                <FileText className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+              </span>
+            </button>
           )}
         </div>
 
-        {/* Herramientas (Expandable Submenu) */}
+        {/* 3. HERRAMIENTAS */}
         <div className="space-y-1 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
           {!collapsed ? (
             <button
               type="button"
               onClick={() => setToolsExpanded((prev) => !prev)}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-[12px] font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg transition-colors"
+              aria-expanded={toolsExpanded}
+              className={sectionHeaderClass}
             >
               <span className="flex items-center gap-2">
-                <Wrench className="w-3.5 h-3.5" />
+                <Wrench className="w-3.5 h-3.5 text-slate-400" />
                 <span>Herramientas</span>
               </span>
-              {toolsExpanded ? (
-                <ChevronDown className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5" />
-              )}
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                  toolsExpanded ? 'rotate-180' : ''
+                }`}
+              />
             </button>
-          ) : (
-            <div className="px-3 pb-1 flex justify-center text-slate-400">
-              <Wrench className="w-3.5 h-3.5" />
-            </div>
-          )}
+          ) : null}
 
-          {(toolsExpanded || collapsed) && (
-            <div className="space-y-1">
-              <button
-                type="button"
-                onClick={() => handleNavigate('manage-patients')}
-                title="Administrar pacientes"
-                className={navItemClass(currentView === 'manage-patients')}
-              >
-                <span className="flex items-center gap-2.5 min-w-0">
-                  <Users className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                  {!collapsed && <span className="truncate">Administrar pacientes</span>}
-                </span>
-              </button>
-
+          <SidebarCollapsible open={toolsExpanded || collapsed}>
+            <div className="space-y-0.5 pt-0.5">
               <button
                 type="button"
                 onClick={() => handleNavigate('manage-providers')}
-                title="Administrar proveedores"
+                title="Administrar Proveedores"
                 className={navItemClass(currentView === 'manage-providers')}
               >
                 <span className="flex items-center gap-2.5 min-w-0">
                   <Building2 className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                  {!collapsed && <span className="truncate">Administrar proveedores</span>}
+                  {!collapsed && <span className="truncate">Administrar Proveedores</span>}
                 </span>
                 {!collapsed && providers.length > 0 && (
                   <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
@@ -479,60 +470,134 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 )}
               </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavigate('activity-log')}
+                title="Historial de actividad"
+                className={navItemClass(currentView === 'activity-log')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <History className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Historial de actividad</span>}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavigate('settings')}
+                title="Configuración"
+                className={navItemClass(currentView === 'settings')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <Settings className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Configuración</span>}
+                </span>
+              </button>
             </div>
-          )}
+          </SidebarCollapsible>
+        </div>
+
+        {/* 4. VENTANA */}
+        <div className="space-y-1 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+          {!collapsed ? (
+            <button
+              type="button"
+              onClick={() => setWindowExpanded((prev) => !prev)}
+              aria-expanded={windowExpanded}
+              className={sectionHeaderClass}
+            >
+              <span className="flex items-center gap-2">
+                <LayoutGrid className="w-3.5 h-3.5 text-slate-400" />
+                <span>Ventana</span>
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                  windowExpanded ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+          ) : null}
+
+          <SidebarCollapsible open={windowExpanded || collapsed}>
+            <div className="space-y-0.5 pt-0.5">
+              <button
+                type="button"
+                onClick={() => handleNavigate('birthdays')}
+                title="Cumpleaños"
+                className={navItemClass(currentView === 'birthdays')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <Cake className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Cumpleaños</span>}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavigate('next-controls')}
+                title="Próximo Control"
+                className={navItemClass(currentView === 'next-controls')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <CalendarCheck className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Próximo Control</span>}
+                </span>
+                {!collapsed && assignedControlsCount > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums text-slate-400 dark:text-slate-500">
+                    {assignedControlsCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavigate('lab')}
+                title="Trabajos de Laboratorio"
+                className={navItemClass(currentView === 'lab')}
+              >
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <FlaskConical className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                  {!collapsed && <span className="truncate">Trabajos de Laboratorio</span>}
+                </span>
+                {!collapsed && pendingLabCount > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums text-amber-600 dark:text-amber-400 font-semibold">
+                    {pendingLabCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </SidebarCollapsible>
         </div>
       </nav>
 
-      {/* Bottom System Section */}
-      <div className="p-3 border-t border-slate-200/70 dark:border-slate-800/70 space-y-1 shrink-0">
-        {!collapsed && professionals.length > 0 && (
-          <div className="px-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800/80">
-            <label
-              htmlFor="active-operator-select"
-              className="block text-[10px] font-semibold text-slate-400 mb-1"
-            >
-              Operador activo
-            </label>
-            <select
-              id="active-operator-select"
-              value={activeProfessionalId || ''}
-              onChange={(e) => setActiveProfessional(e.target.value || null)}
-              className="w-full px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 truncate"
-            >
-              {professionals
-                .filter((p) => p.active)
-                .map((prof) => (
-                  <option key={prof.id} value={prof.id}>
-                    {prof.fullName}
-                  </option>
-                ))}
-            </select>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => handleNavigate('activity-log')}
-          title="Historial de actividad"
-          className={navItemClass(currentView === 'activity-log')}
-        >
-          <span className="flex items-center gap-2.5 min-w-0">
-            <History className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-            {!collapsed && <span className="truncate">Historial de actividad</span>}
-          </span>
-        </button>
-
+      {/* Active Practitioner Footer */}
+      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 shrink-0">
         <button
           type="button"
           onClick={() => handleNavigate('settings')}
-          title="Configuración"
-          className={navItemClass(currentView === 'settings')}
+          title={`${practitioner.name} · ${practitioner.meta}`}
+          className={`w-full flex items-center gap-2.5 rounded-xl transition-colors cursor-pointer ${
+            collapsed ? 'justify-center p-1.5' : 'px-2.5 py-2 text-left'
+          } ${
+            currentView === 'settings'
+              ? 'bg-teal-50 dark:bg-teal-950/60'
+              : 'hover:bg-slate-100 dark:hover:bg-slate-800/80'
+          }`}
         >
-          <span className="flex items-center gap-2.5 min-w-0">
-            <Settings className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
-            {!collapsed && <span className="truncate">Configuración</span>}
+          <span className="w-8 h-8 rounded-full bg-teal-600/12 dark:bg-teal-500/20 border border-teal-600/20 dark:border-teal-400/20 text-teal-700 dark:text-teal-300 font-semibold text-xs flex items-center justify-center shrink-0">
+            {practitioner.initials}
           </span>
+          {!collapsed && (
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                {practitioner.name}
+              </span>
+              <span className="block text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                {practitioner.meta}
+              </span>
+            </span>
+          )}
         </button>
       </div>
     </div>

@@ -148,7 +148,7 @@ export const RecordingView: React.FC = () => {
 
         <div className="relative">
           <div
-            className={`text-6xl sm:text-7xl md:text-8xl font-mono tabular-nums font-bold tracking-tight ${
+            className={`text-5xl sm:text-7xl md:text-8xl font-mono tabular-nums font-bold tracking-tight ${
               isPaused
                 ? 'text-amber-600 dark:text-amber-400 opacity-80'
                 : 'text-slate-900 dark:text-slate-100'
@@ -208,14 +208,14 @@ export const RecordingView: React.FC = () => {
           <span>{appendingToSessionId ? 'Cancelar anexo' : 'Descartar'}</span>
         </button>
 
-        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5 w-full sm:w-auto">
           {!appendingToSessionId && !isQuickDictationMode && (
             <button
               onClick={() => nextPatient()}
-              className="flex-1 sm:flex-none px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-semibold text-teal-950 dark:text-teal-100 bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/60 dark:hover:bg-teal-800/70 border border-teal-300 dark:border-teal-700 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[48px] shadow-xs cursor-pointer whitespace-nowrap"
+              className="flex-1 sm:flex-none px-4 sm:px-5 py-3.5 rounded-2xl text-xs sm:text-sm font-semibold text-teal-950 dark:text-teal-100 bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/60 dark:hover:bg-teal-800/70 border border-teal-300 dark:border-teal-700 active:scale-95 transition-all flex items-center justify-center gap-2 min-h-[48px] shadow-xs cursor-pointer text-center whitespace-normal sm:whitespace-nowrap"
               title="Guarda la consulta actual e inicia la del próximo paciente de inmediato sin pausar la grabación"
             >
-              <UserPlus className="w-4 h-4 text-teal-700 dark:text-teal-300" />
+              <UserPlus className="w-4 h-4 text-teal-700 dark:text-teal-300 shrink-0" />
               <span>Siguiente paciente (#{dayPatientIndex + 1})</span>
             </button>
           )}

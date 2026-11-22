@@ -1,4 +1,5 @@
 import { IAuthProvider } from '../../core/interfaces';
+import { getLocalTrialSession, getTestAuthSession } from '../../core/auth/testAuth';
 import { Profile, Workspace } from '../../core/types';
 import { db } from './db';
 
@@ -25,15 +26,23 @@ export class LocalAuthProvider implements IAuthProvider {
   }
 
   public async getCurrentProfile(): Promise<Profile> {
+    const testSession = getTestAuthSession();
+    const trialSession = getLocalTrialSession();
+    const resolvedName = testSession?.fullName || trialSession?.fullName;
     const existing = await db.profiles.get(DEFAULT_PROFILE_ID);
     if (existing) {
+      if (resolvedName && existing.fullName === 'Dra. Titular') {
+        const updated = { ...existing, fullName: resolvedName, updatedAt: Date.now() };
+        await db.profiles.put(updated);
+        return updated;
+      }
       return existing;
     }
 
     const defaultProfile: Profile = {
       id: DEFAULT_PROFILE_ID,
       workspaceId: DEFAULT_WORKSPACE_ID,
-      fullName: 'Dra. Titular',
+      fullName: resolvedName || 'Dra. Titular',
       role: 'owner',
       createdAt: Date.now(),
       updatedAt: Date.now(),

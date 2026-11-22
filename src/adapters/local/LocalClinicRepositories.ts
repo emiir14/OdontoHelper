@@ -4,11 +4,21 @@ import {
   FinancialTransaction,
   LabOrder,
   OdontogramRecord,
-  PatientFileAttachment,
+  PatientShareLink,
+  PatientSharePreview,
   PeriodontogramRecord,
   TreatmentPlan,
 } from '../../core/types';
 import { db } from './db';
+
+async function getAcceptedSharedPatientIds(workspaceId: string): Promise<string[]> {
+  const shares = await db.patientShares
+    .where('recipientWorkspaceId')
+    .equals(workspaceId)
+    .filter((s) => s.status === 'accepted')
+    .toArray();
+  return Array.from(new Set(shares.map((s) => s.patientId)));
+}
 
 export class LocalProfessionalRepository {
   public async getAll(workspaceId: string): Promise<ClinicProfessional[]> {
@@ -34,12 +44,24 @@ export class LocalProfessionalRepository {
 
 export class LocalEvolutionRepository {
   public async getAll(workspaceId: string): Promise<ClinicalEvolutionEntry[]> {
-    const rows = await db.clinicalEvolutions
+    const own = await db.clinicalEvolutions
       .where('workspaceId')
       .equals(workspaceId)
       .filter((e) => !e.deletedAt)
       .toArray();
-    return rows.sort((a, b) => b.createdAt - a.createdAt);
+    const sharedIds = await getAcceptedSharedPatientIds(workspaceId);
+    if (sharedIds.length === 0) {
+      return own.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    const shared = await db.clinicalEvolutions
+      .where('patientId')
+      .anyOf(sharedIds)
+      .filter((e) => !e.deletedAt)
+      .toArray();
+    const merged = new Map<string, ClinicalEvolutionEntry>();
+    own.forEach((e) => merged.set(e.id, e));
+    shared.forEach((e) => merged.set(e.id, e));
+    return Array.from(merged.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   public async create(entry: ClinicalEvolutionEntry): Promise<void> {
@@ -57,12 +79,24 @@ export class LocalEvolutionRepository {
 
 export class LocalOdontogramRepository {
   public async getAll(workspaceId: string): Promise<OdontogramRecord[]> {
-    const rows = await db.odontograms
+    const own = await db.odontograms
       .where('workspaceId')
       .equals(workspaceId)
       .filter((o) => !o.deletedAt)
       .toArray();
-    return rows.sort((a, b) => b.createdAt - a.createdAt);
+    const sharedIds = await getAcceptedSharedPatientIds(workspaceId);
+    if (sharedIds.length === 0) {
+      return own.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    const shared = await db.odontograms
+      .where('patientId')
+      .anyOf(sharedIds)
+      .filter((o) => !o.deletedAt)
+      .toArray();
+    const merged = new Map<string, OdontogramRecord>();
+    own.forEach((o) => merged.set(o.id, o));
+    shared.forEach((o) => merged.set(o.id, o));
+    return Array.from(merged.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   public async create(record: OdontogramRecord): Promise<void> {
@@ -80,12 +114,24 @@ export class LocalOdontogramRepository {
 
 export class LocalPeriodontogramRepository {
   public async getAll(workspaceId: string): Promise<PeriodontogramRecord[]> {
-    const rows = await db.periodontograms
+    const own = await db.periodontograms
       .where('workspaceId')
       .equals(workspaceId)
       .filter((p) => !p.deletedAt)
       .toArray();
-    return rows.sort((a, b) => b.createdAt - a.createdAt);
+    const sharedIds = await getAcceptedSharedPatientIds(workspaceId);
+    if (sharedIds.length === 0) {
+      return own.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    const shared = await db.periodontograms
+      .where('patientId')
+      .anyOf(sharedIds)
+      .filter((p) => !p.deletedAt)
+      .toArray();
+    const merged = new Map<string, PeriodontogramRecord>();
+    own.forEach((p) => merged.set(p.id, p));
+    shared.forEach((p) => merged.set(p.id, p));
+    return Array.from(merged.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
   public async create(record: PeriodontogramRecord): Promise<void> {
@@ -174,24 +220,89 @@ export class LocalLabOrderRepository {
   }
 }
 
-/**
- * X-rays, intraoral photos and PDFs stay local in browser IndexedDB (like audio PCM)
- * for zero-latency preview without requiring external storage buckets.
- */
-export class LocalPatientFileStore {
-  public async getAll(workspaceId: string): Promise<PatientFileAttachment[]> {
-    const rows = await db.patientFiles
-      .where('workspaceId')
+export class LocalPatientShareRepository {
+  public async getAllForWorkspace(workspaceId: string): Promise<PatientShareLink[]> {
+    const asOwner = await db.patientShares
+      .where('ownerWorkspaceId')
       .equals(workspaceId)
       .toArray();
-    return rows.sort((a, b) => b.createdAt - a.createdAt);
+    const asRecipient = await db.patientShares
+      .where('recipientWorkspaceId')
+      .equals(workspaceId)
+      .filter((s) => s.status === 'accepted')
+      .toArray();
+    const merged = new Map<string, PatientShareLink>();
+    asOwner.forEach((s) => merged.set(s.id, s));
+    asRecipient.forEach((s) => merged.set(s.id, s));
+    return Array.from(merged.values()).sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  public async add(file: PatientFileAttachment): Promise<void> {
-    await db.patientFiles.put(file);
+  public async create(share: PatientShareLink): Promise<void> {
+    await db.patientShares.put(share);
   }
 
-  public async delete(id: string): Promise<void> {
-    await db.patientFiles.delete(id);
+  public async getPreviewByToken(
+    token: string,
+    callerWorkspaceId?: string
+  ): Promise<PatientSharePreview | null> {
+    const row = await db.patientShares.where('inviteToken').equals(token).first();
+    if (!row) return null;
+    return {
+      id: row.id,
+      ownerName: row.ownerName,
+      ownerSpecialty: row.ownerSpecialty,
+      ownerLicense: row.ownerLicense,
+      patientId: row.patientId,
+      patientNameSnapshot: row.patientNameSnapshot,
+      referralNote: row.referralNote,
+      status: row.status,
+      createdAt: row.createdAt,
+      isOwnShare: Boolean(callerWorkspaceId && row.ownerWorkspaceId === callerWorkspaceId),
+    };
+  }
+
+  public async acceptShare(input: {
+    token: string;
+    recipientWorkspaceId: string;
+    recipientUserId?: string;
+    recipientName: string;
+    recipientSpecialty?: string;
+    recipientLicense?: string;
+  }): Promise<{ id: string; patientId: string; ownerWorkspaceId: string }> {
+    const row = await db.patientShares.where('inviteToken').equals(input.token).first();
+    if (!row) {
+      throw new Error('El enlace de derivación no existe.');
+    }
+    if (row.status !== 'pending') {
+      throw new Error('Este enlace de un solo uso ya fue utilizado o revocado.');
+    }
+    if (row.ownerWorkspaceId === input.recipientWorkspaceId) {
+      throw new Error('No podés vincular una ficha con tu propio consultorio.');
+    }
+    const now = Date.now();
+    await db.patientShares.update(row.id, {
+      status: 'accepted',
+      recipientWorkspaceId: input.recipientWorkspaceId,
+      recipientUserId: input.recipientUserId,
+      recipientName: input.recipientName.trim() || 'Colega',
+      recipientSpecialty: input.recipientSpecialty?.trim() || undefined,
+      recipientLicense: input.recipientLicense?.trim() || undefined,
+      acceptedAt: now,
+      updatedAt: now,
+    });
+    return {
+      id: row.id,
+      patientId: row.patientId,
+      ownerWorkspaceId: row.ownerWorkspaceId,
+    };
+  }
+
+  public async unlinkShare(shareId: string): Promise<void> {
+    const now = Date.now();
+    await db.patientShares.update(shareId, {
+      status: 'revoked',
+      revokedAt: now,
+      updatedAt: now,
+    });
   }
 }

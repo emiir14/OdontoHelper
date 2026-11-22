@@ -17,6 +17,13 @@ import {
   isTauriDesktop,
 } from '../core/runtime/platform';
 import { NativeCapabilitiesResponse } from '../core/transcription/tauriEngine';
+import {
+  cardClass,
+  pageContainerClass,
+  pageHeaderClass,
+  pageSubtitleClass,
+  pageTitleClass,
+} from './ui/uiClasses';
 
 function formatBytesMb(bytes: number): string {
   if (!bytes || bytes <= 0) return '';
@@ -48,21 +55,21 @@ export const DownloadsView: React.FC = () => {
   }, [repoSlug]);
 
   const fallbackWindowsUrl = repoSlug
-    ? `https://github.com/${repoSlug}/releases/latest/download/Escriba-Setup.exe`
+    ? `https://github.com/${repoSlug}/releases/latest/download/OdontoHelper-Setup.exe`
     : '';
   const windowsDownloadUrl = release?.windowsAsset?.downloadUrl || fallbackWindowsUrl;
   const androidDownloadUrl = release?.androidAsset?.downloadUrl || '';
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className={pageContainerClass}>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-6 border-b border-slate-200/80 dark:border-slate-800/80">
+      <div className={pageHeaderClass}>
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className={pageTitleClass}>
             Descargas nativas
           </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-2xl leading-relaxed">
-            Escriba funciona 100% gratis en tu dispositivo. Instalá la versión nativa para aprovechar toda la placa de video y memoria sin los límites del navegador.
+          <p className={pageSubtitleClass}>
+            OdontoHelper funciona 100% gratis en tu dispositivo. Instalá la versión nativa para aprovechar toda la placa de video y memoria sin los límites del navegador.
           </p>
         </div>
 
@@ -74,10 +81,10 @@ export const DownloadsView: React.FC = () => {
 
       {/* Active Native Desktop Banner */}
       {runningDesktop && (
-        <div className="p-5 rounded-3xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/70 space-y-2">
+        <div className="p-5 rounded-2xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/70 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-teal-900 dark:text-teal-100">
             <CheckCircle2 className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-            <span>Estás usando Escriba Desktop nativo para Windows (.exe)</span>
+            <span>Estás usando OdontoHelper Desktop nativo para Windows (.exe)</span>
           </div>
           {nativeCaps && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-teal-800/90 dark:text-teal-200/90">
@@ -85,7 +92,7 @@ export const DownloadsView: React.FC = () => {
               <span aria-hidden="true">·</span>
               <span>Hilos CPU: {nativeCaps.cpuThreads}</span>
               <span aria-hidden="true">·</span>
-              <span className="truncate max-w-md" title={nativeCaps.modelsDir}>
+              <span className="truncate max-w-full sm:max-w-md" title={nativeCaps.modelsDir}>
                 Modelos: {nativeCaps.modelsDir}
               </span>
             </div>
@@ -96,7 +103,7 @@ export const DownloadsView: React.FC = () => {
       {/* Platform Download Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Windows .exe Card */}
-        <section className="bg-white dark:bg-slate-900 rounded-3xl border border-teal-200/90 dark:border-teal-900/60 p-6 shadow-xs flex flex-col justify-between gap-6">
+        <section className="bg-white dark:bg-slate-900 rounded-3xl border border-teal-200/90 dark:border-teal-900/60 p-5 sm:p-6 shadow-xs flex flex-col justify-between gap-6">
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -151,7 +158,7 @@ export const DownloadsView: React.FC = () => {
             >
               <Download className="w-4 h-4" />
               <span>
-                Descargar Escriba-Setup.exe
+                Descargar OdontoHelper-Setup.exe
                 {release?.windowsAsset?.sizeBytes
                   ? ` (${formatBytesMb(release.windowsAsset.sizeBytes)})`
                   : ''}
@@ -184,7 +191,7 @@ export const DownloadsView: React.FC = () => {
         </section>
 
         {/* Android .apk Card */}
-        <section className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 p-6 shadow-xs flex flex-col justify-between gap-6">
+        <section className={`${cardClass} p-5 sm:p-6 flex flex-col justify-between gap-6`}>
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -228,7 +235,7 @@ export const DownloadsView: React.FC = () => {
               >
                 <Download className="w-4 h-4" />
                 <span>
-                  Descargar Escriba.apk
+                  Descargar OdontoHelper.apk
                   {release?.androidAsset?.sizeBytes
                     ? ` (${formatBytesMb(release.androidAsset.sizeBytes)})`
                     : ''}
@@ -241,7 +248,7 @@ export const DownloadsView: React.FC = () => {
                 className="w-full py-3.5 px-4 rounded-2xl text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 cursor-not-allowed flex items-center justify-center gap-2 min-h-[48px]"
               >
                 <Download className="w-4 h-4" />
-                <span>Escriba.apk (Próximamente)</span>
+                <span>OdontoHelper.apk (Próximamente)</span>
               </button>
             )}
 

@@ -46,7 +46,69 @@ export async function seedDemoClinicData(
   const { force = false, currency = DEFAULT_CURRENCY, ownerName } = options;
 
   const seedFlagKey = `odontohelper_demo_seeded_${workspaceId}`;
+  const seedDateKey = `odontohelper_demo_seed_date_${workspaceId}`;
+  const today = new Date();
+  const todayStr = addDaysIso(today, 0);
+  const yesterdayStr = addDaysIso(today, -1);
+  const twoDaysAgoStr = addDaysIso(today, -2);
+  const fourDaysAgoStr = addDaysIso(today, -4);
+  const tomorrowStr = addDaysIso(today, 1);
+  const inThreeDaysStr = addDaysIso(today, 3);
+  const inFiveDaysStr = addDaysIso(today, 5);
+  const wsPrefix = workspaceId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) || 'local';
+  const id = (tag: string) => `demo_${wsPrefix}_${tag}`;
+
   if (!force && typeof localStorage !== 'undefined' && localStorage.getItem(seedFlagKey) === '1') {
+    const storedSeedDate = localStorage.getItem(seedDateKey);
+    if (storedSeedDate !== todayStr) {
+      try {
+        const existingAppts = await sharedAppointmentRepo.getAll(workspaceId);
+        const anchorToday = existingAppts.find((a) => !a.deletedAt && a.id === id('appt_today_1'));
+        if (anchorToday && anchorToday.date !== todayStr && (!storedSeedDate || anchorToday.date === storedSeedDate)) {
+          const demoDateTargets: Array<[string, string]> = [
+            [id('appt_today_1'), todayStr],
+            [id('appt_today_2'), todayStr],
+            [id('appt_today_3'), todayStr],
+            [id('appt_today_4'), todayStr],
+            [id('appt_tomorrow_1'), tomorrowStr],
+            [id('appt_future_1'), inThreeDaysStr],
+            [id('appt_past_1'), fourDaysAgoStr],
+            [id('appt_past_2'), twoDaysAgoStr],
+            [id('appt_past_unannotated'), yesterdayStr],
+            [id('appt_cancelled'), twoDaysAgoStr],
+          ];
+          await Promise.all(
+            demoDateTargets
+              .filter(([apptId]) => existingAppts.some((a) => !a.deletedAt && a.id === apptId))
+              .map(([apptId, targetDate]) => sharedAppointmentRepo.update(apptId, { date: targetDate }))
+          );
+
+          const [sess1, sess2] = await Promise.all([
+            sharedSessionRepo.getById(id('sess_1')),
+            sharedSessionRepo.getById(id('sess_2')),
+          ]);
+          if (sess1?.clinicalNote) {
+            await sharedSessionRepo.update(sess1.id, {
+              clinicalNote: {
+                ...sess1.clinicalNote,
+                nextVisit: `${todayStr} 09:00 hs — Prueba y ajuste de corona definitiva.`,
+              },
+            });
+          }
+          if (sess2?.clinicalNote) {
+            await sharedSessionRepo.update(sess2.id, {
+              clinicalNote: {
+                ...sess2.clinicalNote,
+                nextVisit: `${todayStr} 10:30 hs — Instalación de corona definitiva sobre implante 4.6.`,
+              },
+            });
+          }
+        }
+        localStorage.setItem(seedDateKey, todayStr);
+      } catch {
+        // Ignore non-critical background resync failure
+      }
+    }
     return false;
   }
 
@@ -66,22 +128,12 @@ export async function seedDemoClinicData(
   ) {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(seedFlagKey, '1');
+      localStorage.setItem(seedDateKey, todayStr);
     }
     return false;
   }
 
   const now = Date.now();
-  const wsPrefix = workspaceId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) || 'local';
-  const id = (tag: string) => `demo_${wsPrefix}_${tag}`;
-
-  const today = new Date();
-  const todayStr = addDaysIso(today, 0);
-  const yesterdayStr = addDaysIso(today, -1);
-  const twoDaysAgoStr = addDaysIso(today, -2);
-  const fourDaysAgoStr = addDaysIso(today, -4);
-  const tomorrowStr = addDaysIso(today, 1);
-  const inThreeDaysStr = addDaysIso(today, 3);
-  const inFiveDaysStr = addDaysIso(today, 5);
 
   const upcomingBirthdayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4);
   const bdayMonth = String(upcomingBirthdayDate.getMonth() + 1).padStart(2, '0');
@@ -99,7 +151,6 @@ export async function seedDemoClinicData(
       licenseNumber: 'MSP 4821',
       role: 'owner',
       agendaColor: '#0d9488',
-      pinCode: '1234',
       canViewFinance: true,
       active: true,
       createdAt: now - 86400000 * 20,
@@ -115,7 +166,6 @@ export async function seedDemoClinicData(
       licenseNumber: 'MSP 5390',
       role: 'odontologo',
       agendaColor: '#2563eb',
-      pinCode: '5678',
       canViewFinance: true,
       active: true,
       createdAt: now - 86400000 * 18,
@@ -128,7 +178,6 @@ export async function seedDemoClinicData(
       specialty: 'Recepción y Coordinación',
       role: 'secretaria',
       agendaColor: '#d97706',
-      pinCode: '0000',
       canViewFinance: true,
       active: true,
       createdAt: now - 86400000 * 15,
@@ -136,14 +185,20 @@ export async function seedDemoClinicData(
     },
   ];
 
-  if (existingProfs.length === 0) {
+  if (!existingProfs.some((p) => p.role === 'owner')) {
     await sharedProfessionalRepo.create(resolvedOwner);
   }
+  const resolvedExtraProfs: ClinicProfessional[] = [];
   for (const prof of extraProfs) {
-    if (!existingProfs.some((p) => p.id === prof.id || p.fullName === prof.fullName)) {
+    const match = existingProfs.find((p) => p.id === prof.id || p.fullName === prof.fullName);
+    if (!match) {
       await sharedProfessionalRepo.create(prof);
+      resolvedExtraProfs.push(prof);
+    } else {
+      resolvedExtraProfs.push(match);
     }
   }
+  const resolvedEndo = resolvedExtraProfs[0] || extraProfs[0];
 
   // 2. Patients (Uruguayan context: CI, +598 mobiles, Mutualistas)
   const patients: Patient[] = [
@@ -413,8 +468,8 @@ export async function seedDemoClinicData(
       workspaceId,
       patientId: id('pat_florencia'),
       patientName: 'Florencia Suárez Olivera',
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       date: todayStr,
       startTime: '14:30',
       durationMin: 45,
@@ -443,8 +498,8 @@ export async function seedDemoClinicData(
       workspaceId,
       patientId: id('pat_valentina'),
       patientName: 'Valentina Acosta Núñez',
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       date: tomorrowStr,
       startTime: '11:00',
       durationMin: 60,
@@ -522,8 +577,8 @@ export async function seedDemoClinicData(
       workspaceId,
       patientId: id('pat_valentina'),
       patientName: 'Valentina Acosta Núñez',
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       date: twoDaysAgoStr,
       startTime: '15:00',
       durationMin: 30,
@@ -726,7 +781,7 @@ export async function seedDemoClinicData(
 
   await sharedPeriodontogramRepo.create(perioJoaquin);
 
-  // 7. Clinical Evolutions (with PIN signatures)
+  // 7. Clinical Evolutions
   const evolutions: ClinicalEvolutionEntry[] = [
     {
       id: id('evol_1'),
@@ -739,8 +794,6 @@ export async function seedDemoClinicData(
       highlightColor: 'teal',
       professionalId: resolvedOwner.id,
       professionalName: resolvedOwner.fullName,
-      signedWithPin: true,
-      signedAt: now - 86400000 * 4,
       sourceSessionId: id('sess_1'),
       sourceTreatmentPlanId: id('plan_lucia'),
       createdAt: now - 86400000 * 4,
@@ -755,10 +808,8 @@ export async function seedDemoClinicData(
       procedure: 'Restauración con composite simple',
       description: 'Eliminación de caries incipiente oclusal, grabado ácido, adhesivo universal y composite A2 fotopolimerizado.',
       highlightColor: 'blue',
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
-      signedWithPin: true,
-      signedAt: now - 86400000 * 8,
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       sourceTreatmentPlanId: id('plan_lucia'),
       createdAt: now - 86400000 * 8,
       updatedAt: now - 86400000 * 8,
@@ -774,8 +825,6 @@ export async function seedDemoClinicData(
       highlightColor: 'teal',
       professionalId: resolvedOwner.id,
       professionalName: resolvedOwner.fullName,
-      signedWithPin: true,
-      signedAt: now - 86400000 * 2,
       sourceSessionId: id('sess_2'),
       sourceTreatmentPlanId: id('plan_mateo'),
       createdAt: now - 86400000 * 2,
@@ -811,8 +860,8 @@ export async function seedDemoClinicData(
           discountPct: 0,
           completed: true,
           completedAt: now - 86400000 * 8,
-          professionalId: id('prof_endo'),
-          professionalName: 'Dra. Sofía Rodríguez',
+          professionalId: resolvedEndo.id,
+          professionalName: resolvedEndo.fullName,
         },
         {
           id: 'it_lucia_2',
@@ -886,8 +935,8 @@ export async function seedDemoClinicData(
       title: 'Estética dental y blanqueamiento LED',
       currency,
       status: 'presentado',
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       validUntil: addDaysIso(today, 15),
       notes: 'Pendiente confirmación de la paciente.',
       items: [
@@ -957,8 +1006,8 @@ export async function seedDemoClinicData(
       paymentMethod: 'cargo_clinico',
       concept: 'Restauración con composite simple (Pieza 1.6)',
       date: addDaysIso(today, -8),
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       sourceTreatmentPlanId: id('plan_lucia'),
       sourceTreatmentItemId: 'it_lucia_1',
       createdAt: now - 86400000 * 8,
@@ -1062,8 +1111,8 @@ export async function seedDemoClinicData(
       paymentMethod: 'mercadopago',
       concept: 'Seña carilla estética pieza 1.1',
       date: todayStr,
-      professionalId: id('prof_endo'),
-      professionalName: 'Dra. Sofía Rodríguez',
+      professionalId: resolvedEndo.id,
+      professionalName: resolvedEndo.fullName,
       receiptNumber: 'REC-UY-1003',
       createdAt: now - 3600000 * 3,
       updatedAt: now - 3600000 * 3,
@@ -1211,7 +1260,7 @@ export async function seedDemoClinicData(
       workspaceId,
       actionType: 'created',
       entityType: 'finance',
-      summary: `Cobro registrado a Florencia Suárez Olivera ($U 8.500)`,
+      summary: `Cobro registrado a Florencia Suárez Olivera ($ 8.500)`,
       details: 'Seña carilla estética pieza 1.1 · Mercado Pago',
       createdAt: now - 3600000 * 3,
     },
@@ -1229,7 +1278,7 @@ export async function seedDemoClinicData(
       workspaceId,
       actionType: 'created',
       entityType: 'evolution',
-      summary: 'Evolución clínica firmada con PIN: Lucía Fernández Silva (Pieza 3.6)',
+      summary: 'Evolución clínica registrada: Lucía Fernández Silva (Pieza 3.6)',
       details: 'Tallado e impresión definitiva para corona zirconio',
       createdAt: now - 86400000 * 4,
     },
@@ -1250,6 +1299,7 @@ export async function seedDemoClinicData(
 
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(seedFlagKey, '1');
+    localStorage.setItem(seedDateKey, todayStr);
   }
   return true;
 }

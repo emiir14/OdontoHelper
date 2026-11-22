@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Mic, FileAudio, Sparkles, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { revealExpandedSection } from '../core/utils/scrollReveal';
 import { transcriptRepo, useAppStore } from '../store/useAppStore';
+import { Button } from './ui/Button';
+import { cardClass, inputClass, selectClass } from './ui/uiClasses';
 
 interface VoiceIntakePanelProps {
   target: 'patient' | 'provider';
@@ -26,6 +29,7 @@ export const VoiceIntakePanel: React.FC<VoiceIntakePanelProps> = ({
     voiceIntakeDraft?.target === target ? voiceIntakeDraft.transcriptText : ''
   );
   const [loadingSession, setLoadingSession] = useState(false);
+  const manualSectionRef = useRef<HTMLDivElement | null>(null);
 
   const completedSessions = sessions.filter((s) => s.status === 'completed');
 
@@ -53,7 +57,7 @@ export const VoiceIntakePanel: React.FC<VoiceIntakePanelProps> = ({
   };
 
   return (
-    <section className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 space-y-4">
+    <section className={`${cardClass} p-4 sm:p-5 space-y-4`}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -64,29 +68,34 @@ export const VoiceIntakePanel: React.FC<VoiceIntakePanelProps> = ({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-          <button
-            type="button"
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5 shrink-0">
+          <Button
+            variant="primary"
+            size="md"
+            icon={<Mic className="w-4 h-4" />}
             onClick={() => startIntakeRecording(target)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-xs min-h-[40px] whitespace-nowrap"
           >
-            <Mic className="w-4 h-4" />
-            <span>Grabar datos por voz</span>
-          </button>
+            Grabar datos por voz
+          </Button>
 
-          <button
-            type="button"
-            onClick={() => setShowManualText((prev) => !prev)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors min-h-[40px] whitespace-nowrap"
+          <Button
+            variant="subtle"
+            size="md"
+            icon={<Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />}
+            aria-expanded={showManualText}
+            onClick={() => {
+              const next = !showManualText;
+              setShowManualText(next);
+              if (next) revealExpandedSection(manualSectionRef.current);
+            }}
           >
-            <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
             <span>Texto dictado</span>
             {showManualText ? (
               <ChevronUp className="w-3.5 h-3.5" />
             ) : (
               <ChevronDown className="w-3.5 h-3.5" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -101,7 +110,7 @@ export const VoiceIntakePanel: React.FC<VoiceIntakePanelProps> = ({
             value={selectedSessionId}
             onChange={(e) => handleLoadFromSession(e.target.value)}
             disabled={loadingSession}
-            className="flex-1 max-w-md px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500 min-h-[38px]"
+            className={`${selectClass} w-full sm:flex-1 sm:max-w-md min-h-[38px]`}
           >
             <option value="">Seleccionar una consulta ya transcrita...</option>
             {completedSessions.map((s) => (
@@ -114,42 +123,45 @@ export const VoiceIntakePanel: React.FC<VoiceIntakePanelProps> = ({
           </select>
 
           {voiceIntakeDraft?.target === target && onClearDraft && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
+              icon={<RotateCcw className="w-3.5 h-3.5" />}
               onClick={() => {
                 setSelectedSessionId('');
                 setManualText('');
                 onClearDraft();
               }}
-              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-2 py-1"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Limpiar borrador</span>
-            </button>
+              Limpiar borrador
+            </Button>
           )}
         </div>
       )}
 
       {/* Transcribed text preview / manual paste */}
       {(showManualText || voiceIntakeDraft?.target === target) && (
-        <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800/70 space-y-2.5">
+        <div
+          ref={manualSectionRef}
+          className="pt-3 border-t border-slate-200/70 dark:border-slate-800/70 space-y-2.5"
+        >
           <p className="text-[11px] text-slate-500 dark:text-slate-400">{samplePrompt}</p>
           <textarea
             rows={3}
             value={manualText}
             onChange={(e) => setManualText(e.target.value)}
             placeholder="Pega o ajusta aquí el texto transcrito para extraer los campos automáticamente..."
-            className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:border-teal-500 leading-relaxed"
+            className={`${inputClass} leading-relaxed`}
           />
-          <div className="flex justify-end">
-            <button
-              type="button"
+          <div className="flex justify-center sm:justify-end">
+            <Button
+              variant="soft"
+              size="sm"
               onClick={() => onExtractText(manualText)}
               disabled={!manualText.trim()}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/70 hover:bg-teal-100 dark:hover:bg-teal-900/50 disabled:opacity-50 transition-colors min-h-[38px]"
             >
               Autocompletar campos desde texto
-            </button>
+            </Button>
           </div>
         </div>
       )}

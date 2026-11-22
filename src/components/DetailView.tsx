@@ -29,6 +29,8 @@ import {
   UserPlus,
   Truck,
   CalendarDays,
+  Laptop,
+  RotateCcw as DiscardIcon,
 } from 'lucide-react';
 import {
   buildDraftClinicalNote,
@@ -36,9 +38,13 @@ import {
   extractFdiTeeth,
   formatClinicalNoteText,
 } from '../core/clinical/clinicalTemplates';
+import { downloadTextFile } from '../core/clinic/clinicHelpers';
 import { ExportFormatter, formatTimeDisplay } from '../core/export/formatter';
 import { ClinicalNote, ClinicalTemplateId, TranscriptSegment, TranscriptionMode } from '../core/types';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../core/utils/localDrafts';
 import { audioStore, useAppStore } from '../store/useAppStore';
+import { AnchoredDropdown } from './ui/AnchoredDropdown';
+import { AutoResizeTextarea } from './ui/AutoResizeTextarea';
 
 const SPEAKER_CYCLE: Array<string | undefined> = [
   undefined,
@@ -84,6 +90,12 @@ export const DetailView: React.FC = () => {
     patients,
     captureAppointmentFromTranscript,
     setAgendaDate,
+    localAudioAvailability,
+    exportSessionAudioWav,
+    setDraftDirty,
+    guardNavigation,
+    moduleQuery,
+    setModuleQuery,
   } = useAppStore();
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -92,20 +104,25 @@ export const DetailView: React.FC = () => {
   const [totalAudioDuration, setTotalAudioDuration] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
-  const [rightTab, setRightTab] = useState<'transcript' | 'clinical_note'>('transcript');
+  const rightTab: 'transcript' | 'clinical_note' =
+    moduleQuery.tab === 'ficha' ? 'clinical_note' : 'transcript';
+  const setRightTab = (tab: 'transcript' | 'clinical_note') => {
+    setModuleQuery({ tab: tab === 'clinical_note' ? 'ficha' : undefined });
+  };
   const [autoScroll, setAutoScroll] = useState(true);
   const [transcriptSearch, setTranscriptSearch] = useState('');
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [copiedType, setCopiedType] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Inline Session Title / Reference editor
   const [isEditingMeta, setIsEditingMeta] = useState(false);
   const [metaRefInput, setMetaRefInput] = useState('');
   const [metaTitleInput, setMetaTitleInput] = useState('');
 
-  // Local Clinical Note state
+  // Local Clinical Note state & auto-saved draft tracking
   const [noteDraft, setNoteDraft] = useState<ClinicalNote>({
     templateId: 'general',
     detectedTeeth: [],
@@ -116,30 +133,66 @@ export const DetailView: React.FC = () => {
     nextVisit: '',
     updatedAt: Date.now(),
   });
+  const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
+  const [isNoteDirty, setIsNoteDirty] = useState(false);
+  const baselineNoteSnapshotRef = useRef<string>('');
+  const noteDraftKey = activeSession ? `detail:clinical_note:${activeSession.id}` : '';
+  const noteDirtyKey = activeSession ? `detail_note:${activeSession.id}` : '';
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptBottomRef = useRef<HTMLDivElement | null>(null);
   const isTranscribingThisSession = transcribingSessionId === activeSession?.id;
 
-  // Sync ClinicalNote draft when switching session or saving
+  const normalizeNoteForCompare = (n: ClinicalNote) =>
+    JSON.stringify({
+      templateId: n.templateId,
+      detectedTeeth: n.detectedTeeth,
+      chiefComplaint: n.chiefComplaint,
+      findings: n.findings,
+      procedure: n.procedure,
+      indications: n.indications,
+      nextVisit: n.nextVisit,
+    });
+
+  // Sync ClinicalNote draft when switching session or saving, recovering any unsaved localStorage draft
   useEffect(() => {
     if (!activeSession) return;
-    if (activeSession.clinicalNote) {
-      setNoteDraft(activeSession.clinicalNote);
-    } else if (activeTranscript.length > 0) {
-      setNoteDraft(buildDraftClinicalNote(activeTranscript, 'general'));
+    const baseNote: ClinicalNote = activeSession.clinicalNote
+      ? activeSession.clinicalNote
+      : activeTranscript.length > 0
+      ? buildDraftClinicalNote(activeTranscript, 'general')
+      : {
+          templateId: 'general',
+          detectedTeeth: [],
+          chiefComplaint: '',
+          findings: '',
+          procedure: '',
+          indications: '',
+          nextVisit: '',
+          updatedAt: Date.now(),
+        };
+    baselineNoteSnapshotRef.current = normalizeNoteForCompare(baseNote);
+
+    const localKey = `detail:clinical_note:${activeSession.id}`;
+    const recovered = loadLocalDraft<ClinicalNote>(localKey);
+    if (
+      recovered?.data &&
+      normalizeNoteForCompare(recovered.data) !== baselineNoteSnapshotRef.current
+    ) {
+      setNoteDraft(recovered.data);
+      setRestoredDraftAt(recovered.updatedAt);
+      setIsNoteDirty(true);
+      setDraftDirty(`detail_note:${activeSession.id}`, 'Ficha clínica de la consulta');
     } else {
-      setNoteDraft({
-        templateId: 'general',
-        detectedTeeth: [],
-        chiefComplaint: '',
-        findings: '',
-        procedure: '',
-        indications: '',
-        nextVisit: '',
-        updatedAt: Date.now(),
-      });
+      setNoteDraft(baseNote);
+      setRestoredDraftAt(null);
+      setIsNoteDirty(false);
+      setDraftDirty(`detail_note:${activeSession.id}`, null);
     }
+
+    return () => {
+      setDraftDirty(`detail_note:${activeSession.id}`, null);
+    };
   }, [activeSession?.id, activeSession?.clinicalNote]);
 
   // Extract FDI teeth detected across full transcript
@@ -150,7 +203,7 @@ export const DetailView: React.FC = () => {
 
   const linkedAppointments = useMemo(() => {
     if (!activeSession) return [];
-    return appointments.filter((a) => a.sourceSessionId === activeSession.id);
+    return appointments.filter((a) => !a.deletedAt && a.sourceSessionId === activeSession.id);
   }, [appointments, activeSession?.id]);
 
   // Auto-scroll to latest segment as new chunks stream in
@@ -174,7 +227,12 @@ export const DetailView: React.FC = () => {
 
       try {
         const { blob, durationSec } = await audioStore.createWavBlob(activeSession.id);
-        if (cancelled || durationSec === 0) return;
+        if (cancelled) return;
+        if (durationSec === 0) {
+          setAudioUrl(null);
+          setTotalAudioDuration(0);
+          return;
+        }
 
         objectUrl = URL.createObjectURL(blob);
         setAudioUrl(objectUrl);
@@ -289,13 +347,11 @@ export const DetailView: React.FC = () => {
       mime = 'application/json';
     }
 
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `consulta_${activeSession.reference || activeSession.id}.${ext}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `consulta_${activeSession.reference || activeSession.id}.${ext}`,
+      content,
+      mime
+    );
     setShowExportMenu(false);
   };
 
@@ -354,17 +410,68 @@ export const DetailView: React.FC = () => {
     await updateSegmentSpeaker(segment.id, nextSpeaker);
   };
 
+  const updateNoteDraftWithAutoSave = (
+    updater: ClinicalNote | ((prev: ClinicalNote) => ClinicalNote)
+  ) => {
+    setNoteDraft((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const dirty = normalizeNoteForCompare(next) !== baselineNoteSnapshotRef.current;
+      setIsNoteDirty(dirty);
+      if (activeSession) {
+        if (dirty) {
+          saveLocalDraft(noteDraftKey, next);
+          setDraftDirty(noteDirtyKey, 'Ficha clínica de la consulta');
+        } else {
+          clearLocalDraft(noteDraftKey);
+          setRestoredDraftAt(null);
+          setDraftDirty(noteDirtyKey, null);
+        }
+      }
+      return next;
+    });
+  };
+
   const handleAutofillClinicalNote = () => {
     const draft = buildDraftClinicalNote(activeTranscript, noteDraft.templateId);
-    setNoteDraft(draft);
+    updateNoteDraftWithAutoSave(draft);
     showToast('Ficha autocompletada desde la transcripción local', 'info');
   };
 
   const handleSaveClinicalNote = async () => {
-    await saveClinicalNote(activeSession.id, {
+    const noteToSave: ClinicalNote = {
       ...noteDraft,
       updatedAt: Date.now(),
-    });
+    };
+    await saveClinicalNote(activeSession.id, noteToSave);
+    baselineNoteSnapshotRef.current = normalizeNoteForCompare(noteToSave);
+    if (noteDraftKey) clearLocalDraft(noteDraftKey);
+    if (noteDirtyKey) setDraftDirty(noteDirtyKey, null);
+    setRestoredDraftAt(null);
+    setIsNoteDirty(false);
+  };
+
+  const handleDiscardNoteDraft = () => {
+    const baseNote: ClinicalNote = activeSession.clinicalNote
+      ? activeSession.clinicalNote
+      : activeTranscript.length > 0
+      ? buildDraftClinicalNote(activeTranscript, 'general')
+      : {
+          templateId: 'general',
+          detectedTeeth: [],
+          chiefComplaint: '',
+          findings: '',
+          procedure: '',
+          indications: '',
+          nextVisit: '',
+          updatedAt: Date.now(),
+        };
+    baselineNoteSnapshotRef.current = normalizeNoteForCompare(baseNote);
+    setNoteDraft(baseNote);
+    if (noteDraftKey) clearLocalDraft(noteDraftKey);
+    if (noteDirtyKey) setDraftDirty(noteDirtyKey, null);
+    setRestoredDraftAt(null);
+    setIsNoteDirty(false);
+    showToast('Borrador local descartado', 'info');
   };
 
   const handleCopyClinicalNote = () => {
@@ -372,6 +479,16 @@ export const DetailView: React.FC = () => {
     navigator.clipboard.writeText(txt);
     showToast('Ficha clínica copiada al portapapeles', 'success');
   };
+
+  const hasLocalAudio = Boolean(
+    !activeSession.audioDeleted &&
+      (localAudioAvailability[activeSession.id] === true || Boolean(audioUrl))
+  );
+  const isAudioRemoteOtherDevice = Boolean(
+    !activeSession.audioDeleted &&
+      localAudioAvailability[activeSession.id] === false &&
+      !audioUrl
+  );
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-5 lg:h-full lg:flex lg:flex-col lg:overflow-hidden print:h-auto print:overflow-visible">
@@ -404,32 +521,32 @@ export const DetailView: React.FC = () => {
           <div className="space-y-2 border border-slate-300 rounded-xl p-4 print-break-inside-avoid">
             <h2 className="text-sm font-bold uppercase tracking-wide">Ficha Clínica</h2>
             {noteDraft.detectedTeeth.length > 0 && (
-              <p className="text-xs">
+              <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Piezas FDI:</strong> {noteDraft.detectedTeeth.join(', ')}
               </p>
             )}
             {noteDraft.chiefComplaint && (
-              <p className="text-xs">
+              <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Motivo / Relato:</strong> {noteDraft.chiefComplaint}
               </p>
             )}
             {noteDraft.findings && (
-              <p className="text-xs">
+              <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Hallazgos:</strong> {noteDraft.findings}
               </p>
             )}
             {noteDraft.procedure && (
-              <p className="text-xs">
+              <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Procedimiento:</strong> {noteDraft.procedure}
               </p>
             )}
             {noteDraft.indications && (
-              <p className="text-xs">
+              <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Indicaciones:</strong> {noteDraft.indications}
               </p>
             )}
             {noteDraft.nextVisit && (
-              <p className="text-xs">
+              <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Próximo control:</strong> {noteDraft.nextVisit}
               </p>
             )}
@@ -451,21 +568,21 @@ export const DetailView: React.FC = () => {
       <div className="no-print shrink-0 relative z-20 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
         <div className="flex items-start sm:items-center gap-3 min-w-0">
           <button
-            onClick={() => setView('home')}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
+            onClick={() => guardNavigation(() => setView('home'))}
+            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0 cursor-pointer"
             title="Volver a la lista de grabaciones"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
 
           {isEditingMeta ? (
-            <form onSubmit={handleSaveMeta} className="flex flex-wrap items-center gap-2">
+            <form onSubmit={handleSaveMeta} className="flex flex-wrap items-center gap-2 w-full">
               <input
                 type="text"
                 value={metaRefInput}
                 onChange={(e) => setMetaRefInput(e.target.value)}
                 placeholder="Referencia / Paciente (ej. M.G.)"
-                className="px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-teal-500 text-slate-900 dark:text-slate-100 focus:outline-hidden"
+                className="w-full sm:w-auto px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-teal-500 text-slate-900 dark:text-slate-100 focus:outline-hidden"
                 autoFocus
               />
               <input
@@ -473,7 +590,7 @@ export const DetailView: React.FC = () => {
                 value={metaTitleInput}
                 onChange={(e) => setMetaTitleInput(e.target.value)}
                 placeholder="Título de la consulta"
-                className="px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden"
+                className="w-full sm:w-auto px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden"
               />
               <button
                 type="submit"
@@ -492,7 +609,7 @@ export const DetailView: React.FC = () => {
           ) : (
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate">
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-snug break-words">
                   {activeSession.reference ? activeSession.reference : activeSession.title}
                 </h1>
                 <button
@@ -549,15 +666,24 @@ export const DetailView: React.FC = () => {
 
               <div className="relative">
                 <button
-                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  ref={exportMenuTriggerRef}
+                  type="button"
+                  onClick={() => setShowExportMenu((v) => !v)}
+                  aria-expanded={showExportMenu}
+                  aria-haspopup="menu"
                   className="flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors min-h-[44px] whitespace-nowrap"
                 >
                   <FileText className="w-3.5 h-3.5 text-slate-500" />
                   <span>Más formatos</span>
                 </button>
 
-                {showExportMenu && (
-                  <div className="absolute right-0 mt-2 w-60 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 z-40 space-y-0.5">
+                <AnchoredDropdown
+                  open={showExportMenu}
+                  onClose={() => setShowExportMenu(false)}
+                  anchorRef={exportMenuTriggerRef}
+                  preferredWidth={240}
+                  className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 space-y-0.5"
+                >
                     <button
                       onClick={handlePrintPdf}
                       className="w-full text-left px-3 py-2.5 text-xs font-semibold rounded-lg text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 flex items-center justify-between"
@@ -585,6 +711,22 @@ export const DetailView: React.FC = () => {
                     >
                       <span>Descargar Subtítulos (.srt)</span>
                       <Clock className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowExportMenu(false);
+                        void exportSessionAudioWav(activeSession.id);
+                      }}
+                      disabled={!hasLocalAudio}
+                      className="w-full text-left px-3 py-2 text-xs font-medium rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed flex items-center justify-between cursor-pointer"
+                      title={
+                        hasLocalAudio
+                          ? 'Exportar audio original sin compresión (.wav)'
+                          : 'Audio no disponible en este dispositivo'
+                      }
+                    >
+                      <span>Exportar audio (.wav)</span>
+                      <Volume2 className="w-3.5 h-3.5 text-teal-600" />
                     </button>
                     <button
                       onClick={() => handleDownload('json')}
@@ -644,8 +786,7 @@ export const DetailView: React.FC = () => {
                       <span>Detectar turno para Agenda</span>
                       <CalendarDays className="w-3.5 h-3.5" />
                     </button>
-                  </div>
-                )}
+                </AnchoredDropdown>
               </div>
             </>
           )}
@@ -682,15 +823,32 @@ export const DetailView: React.FC = () => {
       <div className="no-print grid grid-cols-1 lg:grid-cols-12 gap-8 items-start lg:flex-1 lg:min-h-0 lg:items-stretch">
         {/* Left Column: Audio Player & Action Controls */}
         <div className="lg:col-span-5 space-y-5 lg:h-full lg:overflow-y-auto lg:pr-1 scrollbar-thin">
-          {/* Synchronized Audio Player Card */}
+          {/* Synchronized Audio Player Card OR Cross-Device / Deleted Notice */}
           {!activeSession.audioDeleted && audioUrl ? (
             <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs space-y-4">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-700 dark:text-slate-300">
-                <span className="flex items-center gap-1.5">
-                  <Volume2 className="w-4 h-4 text-teal-600" />
-                  <span>Reproductor de consulta</span>
-                </span>
-                <span className="font-mono tabular-nums text-slate-500">
+              <div className="flex items-start justify-between gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <div className="min-w-0 space-y-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <Volume2 className="w-4 h-4 text-teal-600 shrink-0" />
+                    <span>Reproductor de consulta</span>
+                  </span>
+                  {(activeSession.audioFileName || activeSession.recordedDeviceLabel) && (
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      {activeSession.audioFileName && (
+                        <span className="font-mono truncate max-w-[220px]">
+                          {activeSession.audioFileName}
+                        </span>
+                      )}
+                      {activeSession.recordedDeviceLabel && (
+                        <span className="inline-flex items-center gap-1">
+                          <Laptop className="w-3 h-3 shrink-0" />
+                          <span>{activeSession.recordedDeviceLabel}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <span className="font-mono tabular-nums text-slate-500 shrink-0">
                   {formatTimeDisplay(currentTime)} / {formatTimeDisplay(totalAudioDuration)}
                 </span>
               </div>
@@ -710,7 +868,7 @@ export const DetailView: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => seekTo(Math.max(0, currentTime - 5))}
-                    className="p-2.5 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                    className="p-2.5 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
                     title="Retroceder 5 segundos"
                   >
                     <RotateCcw className="w-4 h-4" />
@@ -718,7 +876,7 @@ export const DetailView: React.FC = () => {
 
                   <button
                     onClick={handleTogglePlay}
-                    className="w-12 h-12 rounded-full bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center shadow-md shadow-teal-600/20 active:scale-95 transition-all min-h-[48px] min-w-[48px]"
+                    className="w-12 h-12 rounded-full bg-teal-600 hover:bg-teal-700 text-white flex items-center justify-center shadow-md shadow-teal-600/20 active:scale-95 transition-all min-h-[48px] min-w-[48px] cursor-pointer"
                   >
                     {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
                   </button>
@@ -731,7 +889,7 @@ export const DetailView: React.FC = () => {
                       key={spd}
                       type="button"
                       onClick={() => setPlaybackRate(spd)}
-                      className={`px-2 py-1 text-[11px] font-mono font-semibold rounded-lg transition-colors min-h-[32px] ${
+                      className={`px-2 py-1 text-[11px] font-mono font-semibold rounded-lg transition-colors min-h-[32px] cursor-pointer ${
                         playbackRate === spd
                           ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs'
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -747,17 +905,56 @@ export const DetailView: React.FC = () => {
                 Al tocar cualquier fragmento de la transcripción, el audio saltará a ese momento.
               </p>
 
-              {/* Append voice note button */}
-              {!isTranscribingThisSession && (
+              {/* Direct WAV Export + Append voice note */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => appendRecordingToSession(activeSession.id)}
-                  className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50/70 dark:bg-teal-950/40 hover:bg-teal-100 dark:hover:bg-teal-900/50 border border-teal-200/80 dark:border-teal-800/60 transition-colors flex items-center justify-center gap-2 min-h-[44px]"
+                  onClick={() => void exportSessionAudioWav(activeSession.id)}
+                  className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 transition-colors flex items-center justify-center gap-2 min-h-[44px] cursor-pointer"
                 >
-                  <Mic className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Anexar nota de voz a esta consulta</span>
+                  <Download className="w-3.5 h-3.5 text-teal-600" />
+                  <span>Exportar audio (.wav)</span>
                 </button>
-              )}
+
+                {!isTranscribingThisSession && (
+                  <button
+                    type="button"
+                    onClick={() => appendRecordingToSession(activeSession.id)}
+                    className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50/70 dark:bg-teal-950/40 hover:bg-teal-100 dark:hover:bg-teal-900/50 border border-teal-200/80 dark:border-teal-800/60 transition-colors flex items-center justify-center gap-2 min-h-[44px] cursor-pointer"
+                  >
+                    <Mic className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Anexar nota de voz</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : isAudioRemoteOtherDevice ? (
+            <div className="p-5 rounded-3xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 space-y-2.5">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                  <Laptop className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <h3 className="text-xs font-semibold text-amber-950 dark:text-amber-100">
+                    Audio local en otro dispositivo
+                  </h3>
+                  <div className="text-[11px] text-amber-900/90 dark:text-amber-200/90 space-y-0.5">
+                    <div className="font-mono break-all">
+                      Archivo: {activeSession.audioFileName || `audio_${activeSession.id}.wav`}
+                    </div>
+                    <div>
+                      Grabado en:{' '}
+                      <span className="font-semibold">
+                        {activeSession.recordedDeviceLabel || 'Otro equipo o navegador'}
+                      </span>{' '}
+                      · Duración {formatTimeDisplay(activeSession.durationSec)}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-amber-800/85 dark:text-amber-300/85 leading-relaxed pt-0.5">
+                    En el plan gratuito los audios viven solo en el equipo donde se grabaron (no se suben a la nube). Podés ver, editar y exportar la transcripción acá, pero la reproducción y descarga .wav solo están disponibles en el equipo original.
+                  </p>
+                </div>
+              </div>
             </div>
           ) : activeSession.audioDeleted ? (
             <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800/80 text-center space-y-2">
@@ -892,7 +1089,7 @@ export const DetailView: React.FC = () => {
 
                   <div className="flex items-center justify-center gap-1 py-1.5 px-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl">
                     <RotateCw className="w-3.5 h-3.5 text-teal-600 animate-spin shrink-0" />
-                    <span className="ml-2 text-[11px] text-slate-600 dark:text-slate-300 font-medium truncate">
+                    <span className="ml-2 text-[11px] text-slate-600 dark:text-slate-300 font-medium break-words">
                       {transcriptionProgress?.statusText || 'Procesando modelo Whisper...'}
                     </span>
                   </div>
@@ -903,7 +1100,7 @@ export const DetailView: React.FC = () => {
                         <Radio className="w-3 h-3 text-teal-600 animate-pulse" />
                         <span>Última frase detectada:</span>
                       </div>
-                      <p className="text-xs text-slate-800 dark:text-slate-100 font-medium italic leading-relaxed line-clamp-3">
+                      <p className="text-xs text-slate-800 dark:text-slate-100 font-medium italic leading-relaxed break-words">
                         "{transcriptionProgress.lastTranscribedText}"
                       </p>
                     </div>
@@ -928,7 +1125,7 @@ export const DetailView: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-4 pt-2">
-                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
                     <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
                       Contexto:
                     </span>
@@ -959,10 +1156,17 @@ export const DetailView: React.FC = () => {
                   </p>
                   <button
                     onClick={() => startTranscription(activeSession.id)}
-                    className="w-full py-3.5 px-4 rounded-2xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 shadow-md shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 min-h-[48px]"
+                    disabled={isAudioRemoteOtherDevice}
+                    className="w-full py-3.5 px-4 rounded-2xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-teal-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 min-h-[48px] cursor-pointer"
                   >
                     <Sparkles className="w-4 h-4" />
-                    <span>{activeTranscript.length > 0 ? 'Reanudar transcripción' : 'Iniciar transcripción local'}</span>
+                    <span>
+                      {isAudioRemoteOtherDevice
+                        ? 'Audio en otro dispositivo'
+                        : activeTranscript.length > 0
+                        ? 'Reanudar transcripción'
+                        : 'Iniciar transcripción local'}
+                    </span>
                   </button>
                 </div>
               )}
@@ -974,12 +1178,14 @@ export const DetailView: React.FC = () => {
                 <span>Acciones y datos locales</span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                Podés cambiar el contexto o modelo y volver a transcribir con el audio guardado, o liberar el archivo de audio.
+                {isAudioRemoteOtherDevice
+                  ? `El audio original reside en "${activeSession.recordedDeviceLabel || 'otro dispositivo'}". Para volver a transcribir, reproducir o exportar el .wav, abrí esta consulta en ese equipo.`
+                  : 'Podés cambiar el contexto o modelo y volver a transcribir con el audio guardado, o liberar el archivo de audio.'}
               </p>
               <div className="space-y-2.5 pt-1">
-                {!activeSession.audioDeleted && (
+                {hasLocalAudio && (
                   <>
-                    <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70">
                       <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
                         Contexto:
                       </span>
@@ -992,7 +1198,7 @@ export const DetailView: React.FC = () => {
                             key={m.id}
                             type="button"
                             onClick={() => updateSettings({ transcriptionMode: m.id })}
-                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors min-h-[30px] ${
+                            className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-colors min-h-[30px] cursor-pointer ${
                               activeTranscriptionMode === m.id
                                 ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-xs'
                                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
@@ -1006,7 +1212,7 @@ export const DetailView: React.FC = () => {
 
                     <button
                       onClick={handleRetranscribe}
-                      className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/40 border border-teal-200/80 dark:border-teal-800/60 transition-colors flex items-center justify-center gap-2 min-h-[44px]"
+                      className="w-full py-2.5 px-3 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/40 border border-teal-200/80 dark:border-teal-800/60 transition-colors flex items-center justify-center gap-2 min-h-[44px] cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5 text-teal-600" />
                       <span>Volver a transcribir con ajustes actuales</span>
@@ -1023,7 +1229,7 @@ export const DetailView: React.FC = () => {
                           onConfirm: () => deleteAudioForSession(activeSession.id),
                         });
                       }}
-                      className="w-full py-2.5 px-3 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 min-h-[44px]"
+                      className="w-full py-2.5 px-3 rounded-xl text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 min-h-[44px] cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5 text-slate-500" />
                       <span>Borrar solo el archivo de audio</span>
@@ -1056,7 +1262,7 @@ export const DetailView: React.FC = () => {
         <div className="lg:col-span-7 flex flex-col gap-4 lg:h-full lg:min-h-0">
           {/* Mode Switcher + Detected FDI Teeth strip */}
           <div className="shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900/80 rounded-xl border border-slate-200/60 dark:border-slate-800/60 self-start">
+            <div className="flex flex-wrap items-center justify-center gap-1 p-1 bg-slate-100 dark:bg-slate-900/80 rounded-xl border border-slate-200/60 dark:border-slate-800/60 self-center sm:self-start max-w-full">
               <button
                 type="button"
                 onClick={() => setRightTab('transcript')}
@@ -1109,11 +1315,29 @@ export const DetailView: React.FC = () => {
                   type="button"
                   onClick={handleAutofillClinicalNote}
                   disabled={activeTranscript.length === 0}
-                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/80 hover:bg-teal-100 disabled:opacity-50 transition-colors whitespace-nowrap min-h-[40px]"
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/80 hover:bg-teal-100 disabled:opacity-50 transition-colors whitespace-normal sm:whitespace-nowrap text-center min-h-[40px] w-full sm:w-auto"
                 >
                   Autocompletar desde transcripción
                 </button>
               </div>
+
+              {(restoredDraftAt || isNoteDirty) && (
+                <div className="p-3 rounded-2xl bg-amber-50/90 dark:bg-amber-950/35 border border-amber-200 dark:border-amber-800/60 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900 dark:text-amber-200">
+                  <span>
+                    {restoredDraftAt
+                      ? 'Se recuperó un borrador local automático de esta ficha clínica.'
+                      : 'Borrador guardado automáticamente en este dispositivo (falta confirmar con "Guardar ficha").'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleDiscardNoteDraft}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 hover:bg-amber-100/70 cursor-pointer"
+                  >
+                    <DiscardIcon className="w-3 h-3" />
+                    <span>Descartar borrador</span>
+                  </button>
+                </div>
+              )}
 
               {/* Template Selector */}
               <div className="space-y-2">
@@ -1128,9 +1352,12 @@ export const DetailView: React.FC = () => {
                         key={tpl.id}
                         type="button"
                         onClick={() =>
-                          setNoteDraft((prev) => ({ ...prev, templateId: tpl.id as ClinicalTemplateId }))
+                          updateNoteDraftWithAutoSave((prev) => ({
+                            ...prev,
+                            templateId: tpl.id as ClinicalTemplateId,
+                          }))
                         }
-                        className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors min-h-[36px] ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors min-h-[36px] cursor-pointer ${
                           active
                             ? 'border-teal-600 bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 font-semibold'
                             : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -1149,11 +1376,11 @@ export const DetailView: React.FC = () => {
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
                     Piezas dentarias (FDI, separadas por coma)
                   </label>
-                  <input
-                    type="text"
+                  <AutoResizeTextarea
+                    minRows={1}
                     value={noteDraft.detectedTeeth.join(', ')}
                     onChange={(e) =>
-                      setNoteDraft((prev) => ({
+                      updateNoteDraftWithAutoSave((prev) => ({
                         ...prev,
                         detectedTeeth: e.target.value
                           .split(',')
@@ -1162,7 +1389,7 @@ export const DetailView: React.FC = () => {
                       }))
                     }
                     placeholder="Ej: 1.6, 4.8"
-                    className="w-full mt-1 px-3 py-2 text-xs font-mono rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
+                    className="mt-1 font-mono bg-slate-50 dark:bg-slate-800"
                   />
                 </div>
 
@@ -1170,12 +1397,14 @@ export const DetailView: React.FC = () => {
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
                     Motivo de consulta / Relato del paciente
                   </label>
-                  <textarea
-                    rows={2}
+                  <AutoResizeTextarea
+                    minRows={2}
                     value={noteDraft.chiefComplaint}
-                    onChange={(e) => setNoteDraft((p) => ({ ...p, chiefComplaint: e.target.value }))}
+                    onChange={(e) =>
+                      updateNoteDraftWithAutoSave((p) => ({ ...p, chiefComplaint: e.target.value }))
+                    }
                     placeholder="Dolor a la masticación, sensibilidad al frío, control..."
-                    className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
+                    className="mt-1 bg-slate-50 dark:bg-slate-800"
                   />
                 </div>
 
@@ -1183,12 +1412,14 @@ export const DetailView: React.FC = () => {
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
                     Hallazgos clínicos / Diagnóstico
                   </label>
-                  <textarea
-                    rows={2}
+                  <AutoResizeTextarea
+                    minRows={2}
                     value={noteDraft.findings}
-                    onChange={(e) => setNoteDraft((p) => ({ ...p, findings: e.target.value }))}
+                    onChange={(e) =>
+                      updateNoteDraftWithAutoSave((p) => ({ ...p, findings: e.target.value }))
+                    }
                     placeholder="Caries profunda oclusal, filtración de restauración, periapical sin lesión..."
-                    className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
+                    className="mt-1 bg-slate-50 dark:bg-slate-800"
                   />
                 </div>
 
@@ -1196,15 +1427,17 @@ export const DetailView: React.FC = () => {
                   <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
                     Procedimiento realizado
                   </label>
-                  <textarea
-                    rows={3}
+                  <AutoResizeTextarea
+                    minRows={3}
                     value={noteDraft.procedure}
-                    onChange={(e) => setNoteDraft((p) => ({ ...p, procedure: e.target.value }))}
+                    onChange={(e) =>
+                      updateNoteDraftWithAutoSave((p) => ({ ...p, procedure: e.target.value }))
+                    }
                     placeholder={
                       CLINICAL_TEMPLATES.find((t) => t.id === noteDraft.templateId)
                         ?.defaultProcedureHint
                     }
-                    className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
+                    className="mt-1 bg-slate-50 dark:bg-slate-800"
                   />
                 </div>
 
@@ -1213,30 +1446,34 @@ export const DetailView: React.FC = () => {
                     <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
                       Indicaciones / Medicación
                     </label>
-                    <textarea
-                      rows={2}
+                    <AutoResizeTextarea
+                      minRows={2}
                       value={noteDraft.indications}
-                      onChange={(e) => setNoteDraft((p) => ({ ...p, indications: e.target.value }))}
+                      onChange={(e) =>
+                        updateNoteDraftWithAutoSave((p) => ({ ...p, indications: e.target.value }))
+                      }
                       placeholder="Ibuprofeno 600 mg c/8h si hay dolor..."
-                      className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
+                      className="mt-1 bg-slate-50 dark:bg-slate-800"
                     />
                   </div>
                   <div>
                     <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
                       Próximo control / Plan
                     </label>
-                    <textarea
-                      rows={2}
+                    <AutoResizeTextarea
+                      minRows={2}
                       value={noteDraft.nextVisit}
-                      onChange={(e) => setNoteDraft((p) => ({ ...p, nextVisit: e.target.value }))}
+                      onChange={(e) =>
+                        updateNoteDraftWithAutoSave((p) => ({ ...p, nextVisit: e.target.value }))
+                      }
                       placeholder="Citar en 15 días para obturación definitiva..."
-                      className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
+                      className="mt-1 bg-slate-50 dark:bg-slate-800"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={handleCopyClinicalNote}
@@ -1289,7 +1526,7 @@ export const DetailView: React.FC = () => {
               </div>
 
               {/* Transcript Feed */}
-              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs p-4 sm:p-6 min-h-[320px] lg:flex-1 lg:min-h-0 lg:overflow-y-auto scrollbar-thin">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs p-4 sm:p-6 min-h-[280px] sm:min-h-[320px] lg:flex-1 lg:min-h-0 lg:overflow-y-auto scrollbar-thin">
                 {filteredSegments.length > 0 ? (
                   <div className="space-y-3">
                     {filteredSegments.map((segment, index) => {
@@ -1370,11 +1607,11 @@ export const DetailView: React.FC = () => {
 
                           {isEditing ? (
                             <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
-                              <textarea
+                              <AutoResizeTextarea
+                                minRows={3}
                                 value={editingText}
                                 onChange={(e) => setEditingText(e.target.value)}
-                                className="w-full p-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-teal-500 text-slate-900 dark:text-slate-100 focus:outline-hidden"
-                                rows={3}
+                                className="bg-slate-50 dark:bg-slate-800 border-teal-500"
                               />
                               <div className="flex items-center justify-end gap-2">
                                 <button
@@ -1411,7 +1648,7 @@ export const DetailView: React.FC = () => {
                               Procesando siguiente bloque de voz...
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 break-words leading-relaxed mt-0.5">
                             {transcriptionProgress?.lastTranscribedText
                               ? `Último texto: "${transcriptionProgress.lastTranscribedText}"`
                               : 'Whisper analizando fragmento acústico...'}

@@ -1,5 +1,6 @@
 import {
   Appointment,
+  ClinicProfessional,
   CurrencyCode,
   FinancialTransaction,
   LabOrder,
@@ -7,6 +8,7 @@ import {
   PatientAnamnesis,
   PatientProfileMeta,
   PaymentMethod,
+  Profile,
   TreatmentItem,
   TreatmentPlan,
 } from '../types';
@@ -23,18 +25,18 @@ export interface CurrencyMeta {
 }
 
 export const CURRENCY_OPTIONS: CurrencyMeta[] = [
-  { code: 'UYU', name: 'Peso Uruguayo', country: 'Uruguay', symbol: '$U', locale: 'es-UY', decimals: 0 },
-  { code: 'USD', name: 'Dólar Estadounidense', country: 'Estados Unidos', symbol: 'US$', locale: 'es-UY', decimals: 2 },
-  { code: 'ARS', name: 'Peso Argentino', country: 'Argentina', symbol: 'ARS $', locale: 'es-AR', decimals: 0 },
+  { code: 'UYU', name: 'Peso Uruguayo', country: 'Uruguay', symbol: '$', locale: 'es-UY', decimals: 0 },
+  { code: 'USD', name: 'Dólar Estadounidense', country: 'Estados Unidos', symbol: '$', locale: 'es-UY', decimals: 2 },
+  { code: 'ARS', name: 'Peso Argentino', country: 'Argentina', symbol: '$', locale: 'es-AR', decimals: 0 },
   { code: 'BRL', name: 'Real Brasileño', country: 'Brasil', symbol: 'R$', locale: 'pt-BR', decimals: 2 },
-  { code: 'CLP', name: 'Peso Chileno', country: 'Chile', symbol: 'CLP $', locale: 'es-CL', decimals: 0 },
-  { code: 'COP', name: 'Peso Colombiano', country: 'Colombia', symbol: 'COP $', locale: 'es-CO', decimals: 0 },
-  { code: 'MXN', name: 'Peso Mexicano', country: 'México', symbol: 'MXN $', locale: 'es-MX', decimals: 2 },
+  { code: 'CLP', name: 'Peso Chileno', country: 'Chile', symbol: '$', locale: 'es-CL', decimals: 0 },
+  { code: 'COP', name: 'Peso Colombiano', country: 'Colombia', symbol: '$', locale: 'es-CO', decimals: 0 },
+  { code: 'MXN', name: 'Peso Mexicano', country: 'México', symbol: '$', locale: 'es-MX', decimals: 2 },
   { code: 'PEN', name: 'Sol Peruano', country: 'Perú', symbol: 'S/', locale: 'es-PE', decimals: 2 },
   { code: 'PYG', name: 'Guaraní Paraguayo', country: 'Paraguay', symbol: '₲', locale: 'es-PY', decimals: 0 },
   { code: 'BOB', name: 'Boliviano', country: 'Bolivia', symbol: 'Bs', locale: 'es-BO', decimals: 2 },
   { code: 'CRC', name: 'Colón Costarricense', country: 'Costa Rica', symbol: '₡', locale: 'es-CR', decimals: 0 },
-  { code: 'DOP', name: 'Peso Dominicano', country: 'Rep. Dominicana', symbol: 'RD$', locale: 'es-DO', decimals: 2 },
+  { code: 'DOP', name: 'Peso Dominicano', country: 'Rep. Dominicana', symbol: '$', locale: 'es-DO', decimals: 2 },
   { code: 'GTQ', name: 'Quetzal Guatemalteco', country: 'Guatemala', symbol: 'Q', locale: 'es-GT', decimals: 2 },
   { code: 'PAB', name: 'Balboa Panameño', country: 'Panamá', symbol: 'B/.', locale: 'es-PA', decimals: 2 },
   { code: 'VES', name: 'Bolívar Venezolano', country: 'Venezuela', symbol: 'Bs.D', locale: 'es-VE', decimals: 2 },
@@ -80,15 +82,76 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cargo_clinico: 'Cargo por prestación',
 };
 
-export function formatMoney(amount: number, currency: CurrencyCode = DEFAULT_CURRENCY): string {
+export function formatMoney(
+  amount: number,
+  currency: CurrencyCode = DEFAULT_CURRENCY,
+  showCurrencyCode = false
+): string {
   const safe = Number.isFinite(amount) ? amount : 0;
   const meta = getCurrencyMeta(currency);
-  const hasCents = Math.abs(safe % 1) > 0.001;
-  const formatted = safe.toLocaleString(meta.locale, {
+  const absVal = Math.abs(safe);
+  const hasCents = Math.abs(absVal % 1) > 0.001;
+  const formatted = absVal.toLocaleString(meta.locale, {
     minimumFractionDigits: hasCents ? Math.min(2, meta.decimals || 2) : 0,
     maximumFractionDigits: meta.decimals,
   });
-  return `${meta.symbol} ${formatted}`;
+  const sign = safe < -0.0001 ? '-' : '';
+  const prefix = showCurrencyCode ? `${meta.code} ${meta.symbol}` : meta.symbol;
+  return `${sign}${prefix} ${formatted}`;
+}
+
+export function formatCurrencyHeading(
+  label: string,
+  currency: CurrencyCode = DEFAULT_CURRENCY,
+  showCurrencyCode = false
+): string {
+  return showCurrencyCode ? `${label} (${currency})` : label;
+}
+
+/**
+ * Smart table comparator supporting numbers, formatted currency, ISO dates, DD/MM/YYYY dates, and Spanish strings.
+ */
+export function compareTableValues(a: unknown, b: unknown): number {
+  if (a === b) return 0;
+  if (a === null || a === undefined || a === '' || a === '—') return 1;
+  if (b === null || b === undefined || b === '' || b === '—') return -1;
+
+  if (typeof a === 'number' && typeof b === 'number') {
+    return a - b;
+  }
+
+  const strA = String(a).trim();
+  const strB = String(b).trim();
+
+  // DD/MM/YYYY -> YYYYMMDD numeric comparison
+  const dmyRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+  const dmyA = strA.match(dmyRegex);
+  const dmyB = strB.match(dmyRegex);
+  if (dmyA && dmyB) {
+    return `${dmyA[3]}${dmyA[2]}${dmyA[1]}`.localeCompare(`${dmyB[3]}${dmyB[2]}${dmyB[1]}`);
+  }
+
+  // Formatted currency / numbers (e.g., "-$ 3.200", "UYU $ 1.800,50", "45 min", "80%")
+  const numericPattern =
+    /^[+-]?\s*(?:[A-Z]{3}\s*)?(?:\$U?|US\$|R\$|S\/|₡|₲|Bs\.D|Bs|Q|B\/\.|RD\$)?\s*[\d.,]+(?:\s*(?:%|min))?$/;
+  if (numericPattern.test(strA) && numericPattern.test(strB)) {
+    const parseNumeric = (s: string): number => {
+      const neg = s.trim().startsWith('-') ? -1 : 1;
+      const cleaned = s
+        .replace(/[^\d.,]/g, '')
+        .replace(/\.(?=\d{3}(?:[.,]|$))/g, '')
+        .replace(',', '.');
+      const num = Number(cleaned);
+      return Number.isFinite(num) ? neg * num : NaN;
+    };
+    const numA = parseNumeric(strA);
+    const numB = parseNumeric(strB);
+    if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+      return numA - numB;
+    }
+  }
+
+  return strA.localeCompare(strB, 'es', { numeric: true, sensitivity: 'base' });
 }
 
 export function calculateTreatmentItemSubtotal(item: TreatmentItem): number {
@@ -161,6 +224,212 @@ export function calculateSingleCurrencyBalance(
   };
 }
 
+export function indexPatientsById(patients: Patient[]): {
+  byId: Map<string, Patient>;
+  byName: Map<string, Patient>;
+} {
+  const byId = new Map<string, Patient>();
+  const byName = new Map<string, Patient>();
+  for (const pat of patients) {
+    if (pat.deletedAt) continue;
+    byId.set(pat.id, pat);
+    const key = pat.fullName.trim().toLowerCase();
+    if (key && !byName.has(key)) {
+      byName.set(key, pat);
+    }
+  }
+  return { byId, byName };
+}
+
+export function indexTransactionsByPatient(
+  transactions: FinancialTransaction[]
+): Map<string, FinancialTransaction[]> {
+  const map = new Map<string, FinancialTransaction[]>();
+  for (const tx of transactions) {
+    if (tx.deletedAt || !tx.patientId) continue;
+    let bucket = map.get(tx.patientId);
+    if (!bucket) {
+      bucket = [];
+      map.set(tx.patientId, bucket);
+    }
+    bucket.push(tx);
+  }
+  return map;
+}
+
+export function indexPatientBalances(
+  transactions: FinancialTransaction[]
+): Map<string, CurrencyBalance> {
+  const raw = new Map<string, { charged: number; paid: number }>();
+
+  for (const tx of transactions) {
+    if (tx.deletedAt || !tx.patientId) continue;
+    const amt = Math.max(0, Number(tx.amount) || 0);
+    let entry = raw.get(tx.patientId);
+    if (!entry) {
+      entry = { charged: 0, paid: 0 };
+      raw.set(tx.patientId, entry);
+    }
+    if (tx.type === 'charge') entry.charged += amt;
+    else if (tx.type === 'payment') entry.paid += amt;
+  }
+
+  const result = new Map<string, CurrencyBalance>();
+  for (const [patientId, entry] of raw.entries()) {
+    const charged = Math.round(entry.charged * 100) / 100;
+    const paid = Math.round(entry.paid * 100) / 100;
+    result.set(patientId, {
+      charged,
+      paid,
+      balance: Math.round((charged - paid) * 100) / 100,
+    });
+  }
+  return result;
+}
+
+export interface PendingLabIndex {
+  byId: Map<string, LabOrder[]>;
+  byName: Map<string, LabOrder[]>;
+}
+
+export function indexPendingLabsByPatient(labOrders: LabOrder[]): PendingLabIndex {
+  const byId = new Map<string, LabOrder[]>();
+  const byName = new Map<string, LabOrder[]>();
+
+  for (const order of labOrders) {
+    if (order.deletedAt) continue;
+    if (order.status !== 'sin_enviar' && order.status !== 'en_laboratorio') continue;
+
+    if (order.patientId) {
+      let idList = byId.get(order.patientId);
+      if (!idList) {
+        idList = [];
+        byId.set(order.patientId, idList);
+      }
+      idList.push(order);
+    }
+
+    const nameKey = order.patientName.trim().toLowerCase();
+    if (nameKey) {
+      let nameList = byName.get(nameKey);
+      if (!nameList) {
+        nameList = [];
+        byName.set(nameKey, nameList);
+      }
+      nameList.push(order);
+    }
+  }
+
+  return { byId, byName };
+}
+
+export function lookupPendingLabAlerts(
+  patientId: string | undefined,
+  patientName: string,
+  index: PendingLabIndex
+): LabOrder[] {
+  const byIdMatches = patientId ? index.byId.get(patientId) || [] : [];
+  const nameKey = patientName.trim().toLowerCase();
+  const byNameMatches = nameKey ? index.byName.get(nameKey) || [] : [];
+
+  if (byIdMatches.length === 0) return byNameMatches;
+  if (byNameMatches.length === 0) return byIdMatches;
+
+  const seen = new Set(byIdMatches.map((o) => o.id));
+  const merged = [...byIdMatches];
+  for (const order of byNameMatches) {
+    if (!seen.has(order.id)) {
+      seen.add(order.id);
+      merged.push(order);
+    }
+  }
+  return merged;
+}
+
+export function indexTreatmentPlansByPatient(
+  plans: TreatmentPlan[]
+): Map<string, TreatmentPlan[]> {
+  const map = new Map<string, TreatmentPlan[]>();
+  for (const plan of plans) {
+    if (plan.deletedAt || !plan.patientId) continue;
+    let bucket = map.get(plan.patientId);
+    if (!bucket) {
+      bucket = [];
+      map.set(plan.patientId, bucket);
+    }
+    bucket.push(plan);
+  }
+  return map;
+}
+
+export function indexAppointmentsByPatient(appointments: Appointment[]): {
+  byId: Map<string, Appointment[]>;
+  byName: Map<string, Appointment[]>;
+} {
+  const byId = new Map<string, Appointment[]>();
+  const byName = new Map<string, Appointment[]>();
+
+  for (const appt of appointments) {
+    if (appt.deletedAt) continue;
+    if (appt.patientId) {
+      let idList = byId.get(appt.patientId);
+      if (!idList) {
+        idList = [];
+        byId.set(appt.patientId, idList);
+      }
+      idList.push(appt);
+    }
+    const nameKey = appt.patientName.trim().toLowerCase();
+    if (nameKey) {
+      let nameList = byName.get(nameKey);
+      if (!nameList) {
+        nameList = [];
+        byName.set(nameKey, nameList);
+      }
+      nameList.push(appt);
+    }
+  }
+
+  return { byId, byName };
+}
+
+export interface ClinicPatientIndexes {
+  patientsById: Map<string, Patient>;
+  patientsByName: Map<string, Patient>;
+  transactionsByPatientId: Map<string, FinancialTransaction[]>;
+  balancesByPatientId: Map<string, CurrencyBalance>;
+  pendingLabsIndex: PendingLabIndex;
+  plansByPatientId: Map<string, TreatmentPlan[]>;
+  appointmentsByPatientId: Map<string, Appointment[]>;
+  appointmentsByPatientName: Map<string, Appointment[]>;
+}
+
+export function buildClinicPatientIndexes(input: {
+  patients: Patient[];
+  transactions: FinancialTransaction[];
+  labOrders: LabOrder[];
+  treatmentPlans: TreatmentPlan[];
+  appointments: Appointment[];
+}): ClinicPatientIndexes {
+  const patientMap = indexPatientsById(input.patients);
+  const transactionsByPatientId = indexTransactionsByPatient(input.transactions);
+  const balancesByPatientId = indexPatientBalances(input.transactions);
+  const pendingLabsIndex = indexPendingLabsByPatient(input.labOrders);
+  const plansByPatientId = indexTreatmentPlansByPatient(input.treatmentPlans);
+  const apptMap = indexAppointmentsByPatient(input.appointments);
+
+  return {
+    patientsById: patientMap.byId,
+    patientsByName: patientMap.byName,
+    transactionsByPatientId,
+    balancesByPatientId,
+    pendingLabsIndex,
+    plansByPatientId,
+    appointmentsByPatientId: apptMap.byId,
+    appointmentsByPatientName: apptMap.byName,
+  };
+}
+
 export function calculatePatientBalances(
   patientId: string,
   transactions: FinancialTransaction[]
@@ -200,6 +469,13 @@ export function getPatientPendingLabAlerts(
     if (patientId && order.patientId === patientId) return true;
     return Boolean(lower && order.patientName.trim().toLowerCase() === lower);
   });
+}
+
+export function toLocalIsoDate(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 export function sanitizePhoneForWhatsApp(phone: string): string {
@@ -369,3 +645,99 @@ export function unpackPatientProfileMeta(anamnesis?: PatientAnamnesis | null): P
   return anamnesis?._profileMeta || {};
 }
 
+export const MONTHS_ES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+] as const;
+
+export function downloadBlob(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function downloadTextFile(
+  filename: string,
+  content: string,
+  mimeType = 'text/plain;charset=utf-8'
+): void {
+  downloadBlob(filename, new Blob([content], { type: mimeType }));
+}
+
+export function escapeCsvCell(val?: string | number | null): string {
+  const str = String(val ?? '');
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+export function downloadCsvFile(
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number | undefined | null>>,
+  includeBom = false
+): void {
+  const csv = [
+    headers.map((h) => escapeCsvCell(h)).join(','),
+    ...rows.map((row) => row.map((cell) => escapeCsvCell(cell)).join(',')),
+  ].join('\n');
+  const payload = includeBom ? `\uFEFF${csv}` : csv;
+  downloadTextFile(filename, payload, 'text/csv;charset=utf-8');
+}
+
+export function downloadAppointmentIcsFile(appt: Appointment): void {
+  const ics = buildAppointmentIcs(appt);
+  const safeName = appt.patientName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  downloadTextFile(`turno-${safeName}-${appt.date}.ics`, ics, 'text/calendar;charset=utf-8');
+}
+
+export function getPractitionerInitials(name: string): string {
+  const cleaned = name
+    .replace(/\b(dr|dra|od|odont)\.?\b/gi, ' ')
+    .trim();
+  const parts = (cleaned || name.trim()).split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'OD';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+export function resolvePractitionerDisplay(
+  professionals: ClinicProfessional[],
+  activeProfessionalId: string | null,
+  profile: Profile | null
+): {
+  name: string;
+  specialty?: string;
+  licenseNumber?: string;
+  meta: string;
+  initials: string;
+} {
+  const active =
+    professionals.find((p) => p.id === activeProfessionalId) ||
+    professionals.find((p) => p.role === 'owner') ||
+    professionals[0];
+  const name = (active?.fullName || profile?.fullName || 'Odontólogo Titular').trim();
+  const specialty = active?.specialty?.trim() || undefined;
+  const licenseNumber = active?.licenseNumber?.trim() || undefined;
+  const meta = [specialty, licenseNumber].filter(Boolean).join(' · ') || 'Perfil profesional';
+  return {
+    name,
+    specialty,
+    licenseNumber,
+    meta,
+    initials: getPractitionerInitials(name),
+  };
+}

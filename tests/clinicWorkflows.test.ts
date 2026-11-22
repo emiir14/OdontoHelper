@@ -8,7 +8,9 @@ import {
   calculateSingleCurrencyBalance,
   calculateTreatmentItemSubtotal,
   calculateTreatmentPlanTotals,
+  compareTableValues,
   formatBirthDateDisplay,
+  formatCurrencyHeading,
   formatMoney,
   generateGoogleCalendarUrl,
   generateWhatsAppUrl,
@@ -16,6 +18,7 @@ import {
   getUpcomingBirthdays,
   packPatientAnamnesis,
   sanitizePhoneForWhatsApp,
+  toLocalIsoDate,
   unpackPatientProfileMeta,
 } from '../src/core/clinic/clinicHelpers';
 import {
@@ -23,10 +26,30 @@ import {
   appointmentRepo,
   evolutionRepo,
   financialTxRepo,
+  patientRepo,
+  professionalRepo,
+  providerRepo,
+  sessionRepo,
   treatmentPlanRepo,
   useAppStore,
 } from '../src/store/useAppStore';
 import { createDefaultSettings } from '../src/adapters/local/LocalSettingsRepository';
+import {
+  sharedActivityRepo,
+  sharedAppointmentRepo,
+  sharedEvolutionRepo,
+  sharedFinancialTxRepo,
+  sharedLabOrderRepo,
+  sharedOdontogramRepo,
+  sharedPatientRepo,
+  sharedPeriodontogramRepo,
+  sharedProfessionalRepo,
+  sharedProviderRepo,
+  sharedSessionRepo,
+  sharedTranscriptRepo,
+  sharedTreatmentPlanRepo,
+} from '../src/adapters/repositoryRegistry';
+import { seedDemoClinicData } from '../src/core/clinic/mockDataSeeder';
 import { REPORT_DEFINITIONS, buildReportData } from '../src/core/clinic/reportEngine';
 import {
   Appointment,
@@ -263,15 +286,28 @@ describe('OdontoHelper Clinical Helpers', () => {
     expect(list[0].daysUntil).toBe(5);
   });
 
-  it('defaults to UYU currency and provides LatAm + USD currency options', () => {
+  it('defaults to UYU currency without currency U/code by default and reveals code when showCurrencyCode is true', () => {
     expect(DEFAULT_CURRENCY).toBe('UYU');
     expect(CURRENCY_OPTIONS).toHaveLength(15);
     expect(CURRENCY_OPTIONS.map((c) => c.code)).toEqual(
       expect.arrayContaining(['UYU', 'USD', 'ARS', 'BRL', 'CLP', 'COP', 'MXN', 'PEN', 'PYG', 'BOB', 'CRC', 'DOP', 'GTQ', 'PAB', 'VES'])
     );
-    expect(formatMoney(1800)).toBe('$U 1.800');
-    expect(formatMoney(1800, 'USD')).toContain('US$');
-    expect(formatMoney(1800, 'MXN')).toContain('MXN $');
+    expect(formatMoney(1800)).toBe('$ 1.800');
+    expect(formatMoney(-3200)).toBe('-$ 3.200');
+    expect(formatMoney(1800, 'USD')).toBe('$ 1.800');
+    expect(formatMoney(1800, 'UYU', true)).toBe('UYU $ 1.800');
+    expect(formatMoney(1800, 'USD', true)).toBe('USD $ 1.800');
+    expect(formatMoney(1800, 'MXN', true)).toBe('MXN $ 1,800');
+    expect(formatCurrencyHeading('Ingresos', 'UYU', false)).toBe('Ingresos');
+    expect(formatCurrencyHeading('Ingresos', 'USD', true)).toBe('Ingresos (USD)');
+  });
+
+  it('sorts numbers, currency amounts (including negatives), DD/MM/YYYY dates, and Spanish strings via compareTableValues', () => {
+    expect(compareTableValues('-$ 3.200', '$ 1.800')).toBeLessThan(0);
+    expect(compareTableValues('$ 2.400', '$ 950')).toBeGreaterThan(0);
+    expect(compareTableValues('15/11/2026', '02/12/2026')).toBeLessThan(0);
+    expect(compareTableValues('Álvaro', 'Beatriz')).toBeLessThan(0);
+    expect(compareTableValues('—', 'Algo')).toBeGreaterThan(0);
   });
 
   it('calculates unified single-currency balance excluding expenses and soft-deleted transactions', () => {
@@ -367,7 +403,7 @@ describe('OdontoHelper Clinical Helpers', () => {
   });
 });
 
-describe('OdontoHelper Clinic Workflows (PIN signature, RBAC, Budget -> Evolution + Ledger Sync)', () => {
+describe('OdontoHelper Clinic Workflows (Personal Profile, Evolution, Budget -> Evolution + Ledger Sync)', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     useAppStore.setState({
@@ -388,7 +424,6 @@ describe('OdontoHelper Clinic Workflows (PIN signature, RBAC, Budget -> Evolutio
           fullName: 'Dr. Marcos',
           role: 'owner',
           agendaColor: '#0d9488',
-          pinCode: '4321',
           canViewFinance: true,
           active: true,
           createdAt: 1,
@@ -400,7 +435,6 @@ describe('OdontoHelper Clinic Workflows (PIN signature, RBAC, Budget -> Evolutio
           fullName: 'Asistente Clara',
           role: 'asistente',
           agendaColor: '#2563eb',
-          pinCode: '0000',
           canViewFinance: false,
           active: true,
           createdAt: 1,
@@ -441,45 +475,56 @@ describe('OdontoHelper Clinic Workflows (PIN signature, RBAC, Budget -> Evolutio
     vi.spyOn(activityRepo, 'getAll').mockResolvedValue([]);
   });
 
-  it('enforces PIN validation on createEvolutionEntry', async () => {
+  it('creates clinical evolution entry attributed to active personal practitioner', async () => {
     const createSpy = vi.spyOn(evolutionRepo, 'create').mockResolvedValue(undefined);
 
-    const rejected = await useAppStore.getState().createEvolutionEntry(
-      {
-        patientId: 'pat_1',
-        date: '2026-11-17',
-        procedure: 'Control',
-        description: 'Sin novedades',
-        highlightColor: 'teal',
-        signedWithPin: false,
-      },
-      '9999'
-    );
-    expect(rejected).toBeNull();
-    expect(createSpy).not.toHaveBeenCalled();
-
-    const accepted = await useAppStore.getState().createEvolutionEntry(
-      {
-        patientId: 'pat_1',
-        date: '2026-11-17',
-        procedure: 'Control',
-        description: 'Todo en orden',
-        highlightColor: 'teal',
-        signedWithPin: false,
-      },
-      '4321'
-    );
-    expect(accepted).not.toBeNull();
-    expect(accepted?.signedWithPin).toBe(true);
-    expect(accepted?.professionalName).toBe('Dr. Marcos');
+    const created = await useAppStore.getState().createEvolutionEntry({
+      patientId: 'pat_1',
+      date: '2026-11-17',
+      procedure: 'Control',
+      description: 'Todo en orden',
+      highlightColor: 'teal',
+    });
+    expect(created).not.toBeNull();
+    expect(created?.professionalName).toBe('Dr. Marcos');
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('enforces canAccessFinance RBAC per active professional', () => {
+  it('always allows finance access for single personal practitioner and updates personal practitioner profile', async () => {
+    const profUpdateSpy = vi.spyOn(professionalRepo, 'update').mockResolvedValue(undefined);
     expect(useAppStore.getState().canAccessFinance()).toBe(true);
 
     useAppStore.setState({ activeProfessionalId: 'prof_asst' });
-    expect(useAppStore.getState().canAccessFinance()).toBe(false);
+    expect(useAppStore.getState().canAccessFinance()).toBe(true);
+
+    useAppStore.setState({
+      activeProfessionalId: 'prof_owner',
+      profile: {
+        id: 'prof_1',
+        workspaceId: 'ws_test',
+        fullName: 'Dr. Marcos',
+        role: 'owner',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+    await useAppStore.getState().updatePersonalPractitioner({
+      fullName: 'Dra. Camila Ruiz',
+      specialty: 'Ortodoncia',
+      licenseNumber: 'MP 8890',
+    });
+
+    expect(profUpdateSpy).toHaveBeenCalledWith(
+      'prof_owner',
+      expect.objectContaining({
+        fullName: 'Dra. Camila Ruiz',
+        specialty: 'Ortodoncia',
+        licenseNumber: 'MP 8890',
+      })
+    );
+    const updatedOwner = useAppStore.getState().professionals.find((p) => p.id === 'prof_owner');
+    expect(updatedOwner?.fullName).toBe('Dra. Camila Ruiz');
+    expect(useAppStore.getState().profile?.fullName).toBe('Dra. Camila Ruiz');
   });
 
   it('creates both a clinical evolution entry and a financial charge when completing a treatment plan item', async () => {
@@ -531,10 +576,34 @@ describe('OdontoHelper Clinic Workflows (PIN signature, RBAC, Budget -> Evolutio
     expect(apptCreateSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('uses light theme and UYU currency by default in createDefaultSettings', () => {
+  it('uses light theme, UYU currency, and showCurrencyCode=false by default in createDefaultSettings', () => {
     const settings = createDefaultSettings('ws_new');
     expect(settings.theme).toBe('light');
     expect(settings.currency).toBe('UYU');
+    expect(settings.showCurrencyCode).toBe(false);
+  });
+
+  it('supports bulk deleting patients and providers', async () => {
+    const patDelSpy = vi.spyOn(patientRepo, 'delete').mockResolvedValue(undefined);
+    const provDelSpy = vi.spyOn(providerRepo, 'delete').mockResolvedValue(undefined);
+    useAppStore.setState({
+      patients: [
+        { id: 'p_a', workspaceId: 'ws_test', fullName: 'Ana', createdAt: 1, updatedAt: 1 },
+        { id: 'p_b', workspaceId: 'ws_test', fullName: 'Beto', createdAt: 1, updatedAt: 1 },
+      ],
+      providers: [
+        { id: 'pr_1', workspaceId: 'ws_test', name: 'Lab 1', category: 'laboratorio', createdAt: 1, updatedAt: 1 },
+        { id: 'pr_2', workspaceId: 'ws_test', name: 'Lab 2', category: 'insumos', createdAt: 1, updatedAt: 1 },
+      ],
+    });
+
+    await useAppStore.getState().deletePatientsBulk(['p_a', 'p_b']);
+    expect(patDelSpy).toHaveBeenCalledTimes(2);
+    expect(useAppStore.getState().patients).toHaveLength(0);
+
+    await useAppStore.getState().deleteProvidersBulk(['pr_1']);
+    expect(provDelSpy).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().providers.map((p) => p.id)).toEqual(['pr_2']);
   });
 
   it('switches activeReportType and currentView via setReportType', () => {
@@ -640,7 +709,6 @@ describe('OdontoHelper 16 Reports Engine', () => {
       highlightColor: 'teal',
       professionalId: 'prof1',
       professionalName: 'Dr. Marcos',
-      signedWithPin: true,
       createdAt: createdNovMs,
       updatedAt: createdNovMs,
     },
@@ -849,7 +917,7 @@ describe('OdontoHelper 16 Reports Engine', () => {
     expect(sinCita.rows[0][0]).toBe('Carlos López');
   });
 
-  it('formats financial report KPIs and rows using configured currency', () => {
+  it('formats financial report KPIs and rows respecting showCurrencyCode setting', () => {
     const baseInput = {
       fromDate: '2026-11-01',
       toDate: '2026-11-30',
@@ -864,14 +932,178 @@ describe('OdontoHelper 16 Reports Engine', () => {
       labOrders,
     };
 
-    const cajaUsd = buildReportData({ ...baseInput, reportId: 'caja', currency: 'USD' });
-    expect(cajaUsd.kpis[0].label).toContain('(USD)');
-    expect(cajaUsd.kpis[0].value).toContain('US$');
-    expect(cajaUsd.rows[0][6]).toContain('US$');
+    const cajaDefault = buildReportData({ ...baseInput, reportId: 'caja', currency: 'UYU' });
+    expect(cajaDefault.kpis[0].label).toBe('Ingresos');
+    expect(cajaDefault.kpis[0].value).toBe('$ 120.000');
+    expect(cajaDefault.rows[0][6]).toBe('-$ 45.000');
 
-    const cajaMxn = buildReportData({ ...baseInput, reportId: 'caja', currency: 'MXN' });
-    expect(cajaMxn.kpis[0].label).toContain('(MXN)');
-    expect(cajaMxn.kpis[0].value).toContain('MXN $');
-    expect(cajaMxn.rows[0][6]).toContain('MXN $');
+    const cajaUsdShown = buildReportData({
+      ...baseInput,
+      reportId: 'caja',
+      currency: 'USD',
+      showCurrencyCode: true,
+    });
+    expect(cajaUsdShown.kpis[0].label).toContain('(USD)');
+    expect(cajaUsdShown.kpis[0].value).toContain('USD $');
+    expect(cajaUsdShown.rows[0][6]).toContain('USD $');
+
+    const cajaMxnShown = buildReportData({
+      ...baseInput,
+      reportId: 'caja',
+      currency: 'MXN',
+      showCurrencyCode: true,
+    });
+    expect(cajaMxnShown.kpis[0].label).toContain('(MXN)');
+    expect(cajaMxnShown.kpis[0].value).toContain('MXN $');
+    expect(cajaMxnShown.rows[0][6]).toContain('MXN $');
   });
 });
+
+describe('toLocalIsoDate & Demo Data Seeder', () => {
+  it('formats local calendar dates as YYYY-MM-DD without UTC drift', () => {
+    const sample = new Date(2026, 10, 18, 23, 55, 0);
+    expect(toLocalIsoDate(sample)).toBe('2026-11-18');
+  });
+
+  it('seeds consistent appointments, linked sessions, clean currency logs, and refreshes stale demo dates', async () => {
+    vi.restoreAllMocks();
+    const apptsStore: Appointment[] = [];
+    const profsStore: Array<{ id: string; workspaceId: string; role: string; fullName: string }> = [];
+    const sessionsStore: Session[] = [];
+    const logsStore: Array<{ id: string; workspaceId: string; summary: string }> = [];
+    const patsStore: Patient[] = [];
+    const provsStore: Provider[] = [];
+    const evolsStore: ClinicalEvolutionEntry[] = [];
+    const plansStore: TreatmentPlan[] = [];
+    const txsStore: FinancialTransaction[] = [];
+    const labsStore: LabOrder[] = [];
+    const odontoStore: Array<{ id: string; workspaceId: string }> = [];
+    const perioStore: Array<{ id: string; workspaceId: string }> = [];
+
+    const makeMemRepo = <T extends { id: string; workspaceId: string }>(arr: T[]) => ({
+      getAll: async (wsId: string) => arr.filter((x) => x.workspaceId === wsId),
+      create: async (item: T) => {
+        arr.push(item);
+      },
+      update: async (id: string, patch: Partial<T>) => {
+        const idx = arr.findIndex((x) => x.id === id);
+        if (idx >= 0) arr[idx] = { ...arr[idx], ...patch };
+      },
+      delete: async (id: string) => {
+        const idx = arr.findIndex((x) => x.id === id);
+        if (idx >= 0) arr.splice(idx, 1);
+      },
+    });
+
+    const pMem = makeMemRepo(patsStore);
+    vi.spyOn(sharedPatientRepo, 'getAll').mockImplementation(pMem.getAll);
+    vi.spyOn(sharedPatientRepo, 'create').mockImplementation(pMem.create);
+
+    const prMem = makeMemRepo(provsStore);
+    vi.spyOn(sharedProviderRepo, 'getAll').mockImplementation(prMem.getAll);
+    vi.spyOn(sharedProviderRepo, 'create').mockImplementation(prMem.create);
+
+    const aMem = makeMemRepo(apptsStore);
+    vi.spyOn(sharedAppointmentRepo, 'getAll').mockImplementation(aMem.getAll);
+    vi.spyOn(sharedAppointmentRepo, 'create').mockImplementation(aMem.create);
+    vi.spyOn(sharedAppointmentRepo, 'update').mockImplementation(aMem.update);
+
+    const profMem = makeMemRepo(profsStore as never);
+    vi.spyOn(sharedProfessionalRepo, 'getAll').mockImplementation(profMem.getAll as never);
+    vi.spyOn(sharedProfessionalRepo, 'create').mockImplementation(profMem.create as never);
+
+    const sMem = makeMemRepo(sessionsStore);
+    vi.spyOn(sharedSessionRepo, 'getAll').mockImplementation(sMem.getAll);
+    vi.spyOn(sharedSessionRepo, 'getById').mockImplementation(async (id) => sessionsStore.find((s) => s.id === id));
+    vi.spyOn(sharedSessionRepo, 'create').mockImplementation(sMem.create);
+    vi.spyOn(sharedSessionRepo, 'update').mockImplementation(sMem.update);
+
+    vi.spyOn(sharedTranscriptRepo, 'saveSegments').mockResolvedValue(undefined);
+
+    const eMem = makeMemRepo(evolsStore);
+    vi.spyOn(sharedEvolutionRepo, 'getAll').mockImplementation(eMem.getAll);
+    vi.spyOn(sharedEvolutionRepo, 'create').mockImplementation(eMem.create);
+
+    const oMem = makeMemRepo(odontoStore);
+    vi.spyOn(sharedOdontogramRepo, 'getAll').mockImplementation(oMem.getAll as never);
+    vi.spyOn(sharedOdontogramRepo, 'create').mockImplementation(oMem.create as never);
+
+    const peMem = makeMemRepo(perioStore);
+    vi.spyOn(sharedPeriodontogramRepo, 'getAll').mockImplementation(peMem.getAll as never);
+    vi.spyOn(sharedPeriodontogramRepo, 'create').mockImplementation(peMem.create as never);
+
+    const tpMem = makeMemRepo(plansStore);
+    vi.spyOn(sharedTreatmentPlanRepo, 'getAll').mockImplementation(tpMem.getAll);
+    vi.spyOn(sharedTreatmentPlanRepo, 'create').mockImplementation(tpMem.create);
+
+    const txMem = makeMemRepo(txsStore);
+    vi.spyOn(sharedFinancialTxRepo, 'getAll').mockImplementation(txMem.getAll);
+    vi.spyOn(sharedFinancialTxRepo, 'create').mockImplementation(txMem.create);
+
+    const labMem = makeMemRepo(labsStore);
+    vi.spyOn(sharedLabOrderRepo, 'getAll').mockImplementation(labMem.getAll);
+    vi.spyOn(sharedLabOrderRepo, 'create').mockImplementation(labMem.create);
+
+    vi.spyOn(sharedActivityRepo, 'getAll').mockImplementation(async (wsId) =>
+      logsStore.filter((l) => l.workspaceId === wsId) as never
+    );
+    vi.spyOn(sharedActivityRepo, 'add').mockImplementation(async (entry) => {
+      logsStore.push(entry as never);
+    });
+
+    const memStorage: Record<string, string> = {};
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => (k in memStorage ? memStorage[k] : null),
+      setItem: (k: string, v: string) => {
+        memStorage[k] = v;
+      },
+      removeItem: (k: string) => {
+        delete memStorage[k];
+      },
+    });
+
+    const wsId = `ws_seed_test_${Date.now()}`;
+    const seeded = await seedDemoClinicData(wsId, { force: true });
+    expect(seeded).toBe(true);
+
+    const todayStr = toLocalIsoDate();
+    const appts = await sharedAppointmentRepo.getAll(wsId);
+    const profs = await sharedProfessionalRepo.getAll(wsId);
+    const sessions = await sharedSessionRepo.getAll(wsId);
+    const logs = await sharedActivityRepo.getAll(wsId);
+
+    expect(appts.filter((a) => !a.deletedAt && a.date === todayStr).length).toBeGreaterThanOrEqual(4);
+    expect(profs.some((p) => p.role === 'owner')).toBe(true);
+    for (const appt of appts) {
+      if (appt.professionalId) {
+        expect(profs.some((p) => p.id === appt.professionalId)).toBe(true);
+      }
+    }
+
+    for (const sess of sessions) {
+      const linked = appts.filter((a) => !a.deletedAt && a.sourceSessionId === sess.id);
+      expect(linked.length).toBeGreaterThanOrEqual(1);
+      expect(appts.some((a) => !a.deletedAt && a.date === linked[0].date)).toBe(true);
+    }
+
+    expect(logs.some((l) => l.summary.includes('$U'))).toBe(false);
+
+    // Simulate stale previous-day demo seed date and verify automatic refresh without duplicating data
+    const wsPrefix = wsId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) || 'local';
+    const anchorId = `demo_${wsPrefix}_appt_today_1`;
+    await sharedAppointmentRepo.update(anchorId, { date: '2026-11-10' });
+    localStorage.setItem(`odontohelper_demo_seeded_${wsId}`, '1');
+    localStorage.setItem(`odontohelper_demo_seed_date_${wsId}`, '2026-11-10');
+
+    const reseeded = await seedDemoClinicData(wsId);
+    expect(reseeded).toBe(false);
+
+    const refreshedAppts = await sharedAppointmentRepo.getAll(wsId);
+    const refreshed = refreshedAppts.find((a) => a.id === anchorId);
+    expect(refreshed?.date).toBe(todayStr);
+    expect(localStorage.getItem(`odontohelper_demo_seed_date_${wsId}`)).toBe(todayStr);
+
+    vi.unstubAllGlobals();
+  });
+});
+

@@ -1,0 +1,23 @@
+User-agent: *
+Allow: /
+Allow: /funciones
+Allow: /dictado-por-voz
+Allow: /planes
+Allow: /preguntas-frecuentes
+
+Disallow: /login
+Disallow: /registro
+Disallow: /dictar
+Disallow: /inicio
+Disallow: /pacientes
+Disallow: /proveedores
+Disallow: /agenda
+Disallow: /presupuestos
+Disallow: /caja
+Disallow: /reportes
+Disallow: /herramientas
+Disallow: /ventana
+Disallow: /compartir
+Disallow: /api/
+
+Sitemap: /sitemap.xml

@@ -12,10 +12,14 @@ import {
   RotateCw,
   Trash2,
   Zap,
+  Laptop,
 } from 'lucide-react';
 import { formatTimeDisplay } from '../core/export/formatter';
 import { Session } from '../core/types';
 import { useAppStore } from '../store/useAppStore';
+import { Button } from './ui/Button';
+import { Modal } from './ui/Modal';
+import { inputClass, labelClass, selectClass } from './ui/uiClasses';
 
 export const HomeView: React.FC = () => {
   const {
@@ -30,10 +34,18 @@ export const HomeView: React.FC = () => {
     importAudioFile,
     settings,
     patients,
+    localAudioAvailability,
+    moduleQuery,
+    setModuleQuery,
   } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'recorded' | 'transcribing' | 'completed'>('all');
+  const statusFilter: 'all' | 'recorded' | 'transcribing' | 'completed' =
+    moduleQuery.status === 'recorded' ||
+    moduleQuery.status === 'transcribing' ||
+    moduleQuery.status === 'completed'
+      ? moduleQuery.status
+      : 'all';
   const [showModal, setShowModal] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [referenceInput, setReferenceInput] = useState('');
@@ -132,7 +144,7 @@ export const HomeView: React.FC = () => {
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-[11px] leading-tight sm:text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors shadow-xs text-center sm:whitespace-nowrap h-full min-h-[56px] sm:min-h-0 sm:h-12"
+            className="min-w-0 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-[11px] leading-tight sm:text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors shadow-xs text-center sm:whitespace-nowrap h-full min-h-[56px] sm:min-h-0 sm:h-12"
           >
             <Upload className="w-4 h-4 text-slate-500 shrink-0" />
             <span>Importar audio</span>
@@ -140,7 +152,7 @@ export const HomeView: React.FC = () => {
 
           <button
             onClick={() => startRecording('', true, { isQuickDictation: true })}
-            className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-2 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-[11px] leading-tight sm:text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/80 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-colors text-center sm:whitespace-nowrap h-full min-h-[56px] sm:min-h-0 sm:h-12"
+            className="min-w-0 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-[11px] leading-tight sm:text-xs font-semibold text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800/80 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-colors text-center sm:whitespace-nowrap h-full min-h-[56px] sm:min-h-0 sm:h-12"
             title="Graba un dictado breve post-atención sin pasos previos y transcribe al detener"
           >
             <Zap className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
@@ -155,7 +167,7 @@ export const HomeView: React.FC = () => {
                 startRecording();
               }
             }}
-            className="group relative flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2.5 px-2 py-2.5 sm:px-6 sm:py-3 rounded-2xl text-[11px] leading-tight sm:text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 active:scale-[0.98] transition-all shadow-md shadow-teal-600/20 text-center sm:whitespace-nowrap h-full min-h-[56px] sm:min-h-0 sm:h-12"
+            className="min-w-0 group relative flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2.5 px-1.5 py-2.5 sm:px-6 sm:py-3 rounded-2xl text-[11px] leading-tight sm:text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 active:scale-[0.98] transition-all shadow-md shadow-teal-600/20 text-center sm:whitespace-nowrap h-full min-h-[56px] sm:min-h-0 sm:h-12"
           >
             <Mic className="w-4 h-4 shrink-0" />
             <span>Grabar consulta</span>
@@ -177,8 +189,8 @@ export const HomeView: React.FC = () => {
             return (
               <button
                 key={tab.id}
-                onClick={() => setStatusFilter(tab.id as any)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                onClick={() => setModuleQuery({ status: tab.id === 'all' ? undefined : tab.id })}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   isSelected
                     ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -191,7 +203,7 @@ export const HomeView: React.FC = () => {
         </div>
 
         {/* Search */}
-        <div className="relative flex-1 sm:max-w-xs">
+        <div className="relative w-full sm:flex-1 sm:max-w-xs">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
@@ -210,6 +222,9 @@ export const HomeView: React.FC = () => {
             <SessionRow
               key={session.id}
               session={session}
+              hasLocalAudio={
+                !session.audioDeleted && localAudioAvailability[session.id] !== false
+              }
               onClick={() => setView('detail', session.id)}
               onDelete={() => {
                 openConfirm({
@@ -256,20 +271,31 @@ export const HomeView: React.FC = () => {
 
       {/* New Recording Confirmation Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-5">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                Nueva grabación clínica
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Configurá los datos de referencia antes de iniciar la captura de audio.
-              </p>
-            </div>
-
+        <Modal
+          onClose={() => setShowModal(false)}
+          size="md"
+          title="Nueva grabación clínica"
+          subtitle="Configurá los datos de referencia antes de iniciar la captura de audio."
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowModal(false)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleStartModalConfirm}
+                disabled={settings?.requireConsent && !consentChecked}
+                icon={<Mic className="w-3.5 h-3.5" />}
+              >
+                Iniciar grabación
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
             {patients.length > 0 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+              <div>
+                <label className={labelClass}>
                   Vincular a paciente registrado (Opcional)
                 </label>
                 <select
@@ -280,7 +306,7 @@ export const HomeView: React.FC = () => {
                     const found = patients.find((p) => p.id === id);
                     if (found) setReferenceInput(found.fullName);
                   }}
-                  className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                  className={selectClass}
                 >
                   <option value="">Sin vincular / Consulta nueva</option>
                   {patients.map((p) => (
@@ -292,8 +318,8 @@ export const HomeView: React.FC = () => {
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+            <div>
+              <label className={labelClass}>
                 Referencia o código del paciente (Opcional)
               </label>
               <input
@@ -301,9 +327,9 @@ export const HomeView: React.FC = () => {
                 value={referenceInput}
                 onChange={(e) => setReferenceInput(e.target.value)}
                 placeholder="Ej: Paciente M.G. / Implante 1.4"
-                className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                className={inputClass}
               />
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
                 Por privacidad, sugerimos iniciales o número de historia clínica en lugar del nombre completo.
               </p>
             </div>
@@ -314,33 +340,15 @@ export const HomeView: React.FC = () => {
                   type="checkbox"
                   checked={consentChecked}
                   onChange={(e) => setConsentChecked(e.target.checked)}
-                  className="mt-0.5 rounded text-teal-600 focus:ring-teal-500"
+                  className="mt-0.5 rounded accent-teal-600 focus:ring-teal-500"
                 />
                 <span className="text-xs text-teal-900 dark:text-teal-200 leading-snug">
                   Informé al paciente sobre el registro de la consulta y cuento con su consentimiento informado para grabar.
                 </span>
               </label>
             )}
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 rounded-xl"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleStartModalConfirm}
-                disabled={settings?.requireConsent && !consentChecked}
-                className="px-5 py-2.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors"
-              >
-                Iniciar grabación
-              </button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -349,9 +357,10 @@ export const HomeView: React.FC = () => {
 // Row component adhering to Zero-Pill and 44px touch targets
 const SessionRow: React.FC<{
   session: Session;
+  hasLocalAudio: boolean;
   onClick: () => void;
   onDelete: () => void;
-}> = ({ session, onClick, onDelete }) => {
+}> = ({ session, hasLocalAudio, onClick, onDelete }) => {
   const dateStr = new Date(session.createdAt).toLocaleDateString('es-AR', {
     day: 'numeric',
     month: 'short',
@@ -411,29 +420,53 @@ const SessionRow: React.FC<{
           onClick();
         }
       }}
-      className="w-full text-left p-4 sm:p-5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-4 group min-h-[64px] cursor-pointer"
+      className="w-full text-left p-4 sm:p-5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-3 sm:gap-4 group min-h-[64px] cursor-pointer"
     >
-      <div className="flex items-center gap-4 min-w-0">
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
         <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 shrink-0 group-hover:bg-teal-50 dark:group-hover:bg-teal-950/60 group-hover:text-teal-600 transition-colors">
           <FileAudio className="w-5 h-5" />
         </div>
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
             {session.reference ? session.reference : session.title}
           </h3>
 
           {/* Unboxed Metadata Line with separators */}
-          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             <span>{dateStr}</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono tabular-nums">{formatTimeDisplay(session.durationSec)}</span>
-            {session.audioDeleted && (
+            {session.audioFileName && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[160px] sm:max-w-[200px]">
+                  {session.audioFileName}
+                </span>
+              </>
+            )}
+            {session.recordedDeviceLabel && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <Laptop className="w-3 h-3 shrink-0" />
+                  <span>{session.recordedDeviceLabel}</span>
+                </span>
+              </>
+            )}
+            {session.audioDeleted ? (
               <>
                 <span aria-hidden="true">·</span>
                 <span className="text-slate-400 dark:text-slate-500">Audio liberado</span>
               </>
-            )}
+            ) : !hasLocalAudio ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-amber-700 dark:text-amber-300 font-medium">
+                  Audio en otro dispositivo (solo lectura de texto aquí)
+                </span>
+              </>
+            ) : null}
           </div>
         </div>
       </div>

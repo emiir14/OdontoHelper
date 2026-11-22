@@ -1,12 +1,41 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+function spaApiBoundaryPlugin(): Plugin {
+  const apiGuard = (
+    req: { url?: string },
+    res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void },
+    next: () => void
+  ) => {
+    const pathname = (req.url || '').split('?')[0];
+    if (pathname === '/api' || pathname.startsWith('/api/')) {
+      res.statusCode = 404;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ ok: false, error: 'API route unavailable in static dev server.' }));
+      return;
+    }
+    next();
+  };
+
+  return {
+    name: 'odontohelper-spa-api-boundary',
+    configureServer(server) {
+      server.middlewares.use(apiGuard);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(apiGuard);
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
+    appType: 'spa' as const,
     plugins: [
+      spaApiBoundaryPlugin(),
       react(),
       tailwindcss(),
       VitePWA({
@@ -47,6 +76,8 @@ export default defineConfig(() => {
         workbox: {
           skipWaiting: true,
           clientsClaim: true,
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api\//, /\/[^/?]+\.[^/]+$/],
           globPatterns: ['**/*.{js,css,html,wasm}'],
           globIgnores: ['**/assets/aistudio/**'],
           maximumFileSizeToCacheInBytes: 35 * 1024 * 1024,
@@ -68,9 +99,17 @@ export default defineConfig(() => {
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'credentialless',
+        'Referrer-Policy': 'no-referrer',
       },
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    preview: {
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'credentialless',
+        'Referrer-Policy': 'no-referrer',
+      },
     },
   };
 });

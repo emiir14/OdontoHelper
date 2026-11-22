@@ -12,10 +12,14 @@ import {
 import {
   DEFAULT_CURRENCY,
   PAYMENT_METHOD_LABELS,
-  calculateSingleCurrencyBalance,
   calculateTreatmentItemSubtotal,
   calculateTreatmentPlanTotals,
+  formatCurrencyHeading,
   formatMoney,
+  indexAppointmentsByPatient,
+  indexPatientBalances,
+  indexPatientsById,
+  indexTreatmentPlansByPatient,
 } from './clinicHelpers';
 
 export type ReportTypeId =
@@ -179,6 +183,7 @@ export interface BuildReportInput {
   fromDate: string; // YYYY-MM-DD
   toDate: string; // YYYY-MM-DD
   currency?: CurrencyCode;
+  showCurrencyCode?: boolean;
   professionalFilter?: string; // 'all' or professionalId
   patients: Patient[];
   providers: Provider[];
@@ -233,6 +238,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
     fromDate,
     toDate,
     currency = DEFAULT_CURRENCY,
+    showCurrencyCode = false,
     professionalFilter = 'all',
     patients,
     appointments,
@@ -257,6 +263,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
   const activePlans = treatmentPlans.filter((p) => !p.deletedAt && matchProf(p.professionalId));
   const activeTx = transactions.filter((t) => !t.deletedAt && matchProf(t.professionalId));
   const activeLabs = labOrders.filter((l) => !l.deletedAt);
+  const patientMaps = indexPatientsById(activePatients);
 
   switch (reportId) {
     case 'caja': {
@@ -279,11 +286,19 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
       return {
         definition,
         kpis: [
-          { label: `Ingresos (${currency})`, value: formatMoney(totalIncome, currency), tone: 'emerald' },
-          { label: `Egresos (${currency})`, value: formatMoney(totalExpense, currency), tone: 'rose' },
           {
-            label: `Saldo neto (${currency})`,
-            value: formatMoney(totalIncome - totalExpense, currency),
+            label: formatCurrencyHeading('Ingresos', currency, showCurrencyCode),
+            value: formatMoney(totalIncome, currency, showCurrencyCode),
+            tone: 'emerald',
+          },
+          {
+            label: formatCurrencyHeading('Egresos', currency, showCurrencyCode),
+            value: formatMoney(totalExpense, currency, showCurrencyCode),
+            tone: 'rose',
+          },
+          {
+            label: formatCurrencyHeading('Saldo neto', currency, showCurrencyCode),
+            value: formatMoney(totalIncome - totalExpense, currency, showCurrencyCode),
             tone: 'teal',
           },
           { label: 'Movimientos', value: String(cashTx.length) },
@@ -296,7 +311,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
           t.patientName || '—',
           PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod,
           t.professionalName || '—',
-          `${t.type === 'expense' ? '- ' : ''}${formatMoney(t.amount, currency)}`,
+          formatMoney(t.type === 'expense' ? -t.amount : t.amount, currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay ingresos ni egresos registrados en el rango seleccionado.',
       };
@@ -358,14 +373,18 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
       return {
         definition,
         kpis: [
-          { label: `Total generado (${currency})`, value: formatMoney(totalGenerated, currency), tone: 'teal' },
+          {
+            label: formatCurrencyHeading('Total generado', currency, showCurrencyCode),
+            value: formatMoney(totalGenerated, currency, showCurrencyCode),
+            tone: 'teal',
+          },
           { label: 'Prestaciones facturadas', value: String(combined.length) },
           {
             label: 'Promedio por prestación',
             value:
               combined.length > 0
-                ? formatMoney(totalGenerated / combined.length, currency)
-                : formatMoney(0, currency),
+                ? formatMoney(totalGenerated / combined.length, currency, showCurrencyCode)
+                : formatMoney(0, currency, showCurrencyCode),
           },
         ],
         columns: ['Fecha', 'Paciente', 'Prestación / Concepto', 'Pieza', 'Profesional', 'Origen', 'Monto'],
@@ -376,7 +395,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
           r.tooth,
           r.professional,
           r.origin,
-          formatMoney(r.amount, currency),
+          formatMoney(r.amount, currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay producción clínica generada en el rango seleccionado.',
       };
@@ -432,9 +451,9 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         )
         .forEach((a) => {
           const key = a.patientId || `name:${a.patientName.toLowerCase().trim()}`;
-          const pat = activePatients.find(
-            (p) => p.id === a.patientId || p.fullName.toLowerCase() === a.patientName.toLowerCase()
-          );
+          const pat =
+            (a.patientId ? patientMaps.byId.get(a.patientId) : undefined) ||
+            patientMaps.byName.get(a.patientName.trim().toLowerCase());
           const cur = map.get(key) || {
             patientName: pat?.fullName || a.patientName,
             dni: pat?.dni || '—',
@@ -454,7 +473,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
       activeEvols
         .filter((e) => inDateRange(e.date, fromDate, toDate))
         .forEach((e) => {
-          const pat = activePatients.find((p) => p.id === e.patientId);
+          const pat = patientMaps.byId.get(e.patientId);
           const key = e.patientId;
           const cur = map.get(key) || {
             patientName: pat?.fullName || 'Paciente',
@@ -509,25 +528,42 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         )
         .sort((a, b) => b.date.localeCompare(a.date));
 
+      const evolDateKeys = new Set<string>();
+      for (const e of activeEvols) {
+        if (e.patientId && e.date) {
+          evolDateKeys.add(`${e.patientId}:${e.date}`);
+        }
+      }
+
+      const sessionNotesByDate = new Map<string, Session[]>();
+      for (const s of sessions) {
+        if (s.deletedAt || !s.clinicalNote) continue;
+        const dStr = msToDateStr(s.createdAt);
+        if (!dStr) continue;
+        let bucket = sessionNotesByDate.get(dStr);
+        if (!bucket) {
+          bucket = [];
+          sessionNotesByDate.set(dStr, bucket);
+        }
+        bucket.push(s);
+      }
+
       const missing = attendedAppts.filter((appt) => {
-        const pat = activePatients.find(
-          (p) =>
-            (appt.patientId && p.id === appt.patientId) ||
-            p.fullName.toLowerCase() === appt.patientName.toLowerCase()
-        );
+        const pat =
+          (appt.patientId ? patientMaps.byId.get(appt.patientId) : undefined) ||
+          patientMaps.byName.get(appt.patientName.trim().toLowerCase());
         const resolvedPatId = appt.patientId || pat?.id;
 
         const hasEvolutionSameDay = resolvedPatId
-          ? activeEvols.some((e) => e.patientId === resolvedPatId && e.date === appt.date)
+          ? evolDateKeys.has(`${resolvedPatId}:${appt.date}`)
           : false;
 
-        const hasClinicalNoteSession = sessions.some(
+        const daySessions = sessionNotesByDate.get(appt.date) || [];
+        const lowerName = appt.patientName.toLowerCase();
+        const hasClinicalNoteSession = daySessions.some(
           (s) =>
-            !s.deletedAt &&
-            msToDateStr(s.createdAt) === appt.date &&
-            Boolean(s.clinicalNote) &&
-            ((resolvedPatId && s.patientId === resolvedPatId) ||
-              (s.reference || '').toLowerCase().includes(appt.patientName.toLowerCase()))
+            (resolvedPatId && s.patientId === resolvedPatId) ||
+            (s.reference || '').toLowerCase().includes(lowerName)
         );
 
         return !hasEvolutionSameDay && !hasClinicalNoteSession;
@@ -614,7 +650,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
             procedure: item.procedure,
             professional: item.professionalName || plan.professionalName || '—',
             origin: `Presupuesto: ${plan.title}`,
-            valueStr: formatMoney(sub, currency),
+            valueStr: formatMoney(sub, currency, showCurrencyCode),
             amount: sub,
           });
         });
@@ -623,14 +659,14 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
       activeEvols
         .filter((e) => !e.sourceTreatmentPlanId && inDateRange(e.date, fromDate, toDate))
         .forEach((e) => {
-          const pat = activePatients.find((p) => p.id === e.patientId);
+          const pat = patientMaps.byId.get(e.patientId);
           list.push({
             date: e.date,
             patient: pat?.fullName || 'Paciente',
             tooth: e.toothFdi || '—',
             procedure: e.procedure,
             professional: e.professionalName || '—',
-            origin: e.signedWithPin ? 'Evolución firmada PIN' : 'Evolución clínica',
+            origin: 'Evolución clínica',
             valueStr: '—',
             amount: 0,
           });
@@ -643,7 +679,11 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         definition,
         kpis: [
           { label: 'Prestaciones realizadas', value: String(list.length), tone: 'teal' },
-          { label: `Valor presupuestado (${currency})`, value: formatMoney(totalAmount, currency), tone: 'emerald' },
+          {
+            label: formatCurrencyHeading('Valor presupuestado', currency, showCurrencyCode),
+            value: formatMoney(totalAmount, currency, showCurrencyCode),
+            tone: 'emerald',
+          },
         ],
         columns: ['Fecha', 'Paciente', 'Pieza', 'Prestación', 'Profesional', 'Origen', 'Valor'],
         rows: list.map((r) => [
@@ -677,7 +717,11 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         definition,
         kpis: [
           { label: 'Presupuestos sin aceptar', value: String(list.length), tone: 'amber' },
-          { label: `Monto pendiente (${currency})`, value: formatMoney(totalPending, currency), tone: 'teal' },
+          {
+            label: formatCurrencyHeading('Monto pendiente', currency, showCurrencyCode),
+            value: formatMoney(totalPending, currency, showCurrencyCode),
+            tone: 'teal',
+          },
         ],
         columns: ['Fecha', 'Paciente', 'Plan de tratamiento', 'Estado', 'Vigencia', 'Profesional', 'Total'],
         rows: list.map((p) => [
@@ -687,7 +731,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
           PLAN_STATUS_ES[p.status],
           p.validUntil || '—',
           p.professionalName || '—',
-          formatMoney(calculateTreatmentPlanTotals(p).total, currency),
+          formatMoney(calculateTreatmentPlanTotals(p).total, currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay presupuestos pendientes de aceptación en el rango seleccionado.',
       };
@@ -703,18 +747,19 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         phone: string;
       }
 
+      const balancesByPatient = indexPatientBalances(activeTx);
+      const plansByPatient = indexTreatmentPlansByPatient(activePlans);
       const rowsData: ReceivableRow[] = [];
 
       activePatients.forEach((pat) => {
-        const bal = calculateSingleCurrencyBalance(pat.id, activeTx);
-        const approvedPlans = activePlans.filter(
-          (pl) =>
-            pl.patientId === pat.id && (pl.status === 'aprobado' || pl.status === 'en_curso')
-        );
-        const pendPlan = approvedPlans.reduce(
-          (sum, pl) => sum + calculateTreatmentPlanTotals(pl).pendingTotal,
-          0
-        );
+        const bal = balancesByPatient.get(pat.id) || { charged: 0, paid: 0, balance: 0 };
+        const patientPlans = plansByPatient.get(pat.id) || [];
+        let pendPlan = 0;
+        for (const pl of patientPlans) {
+          if (pl.status === 'aprobado' || pl.status === 'en_curso') {
+            pendPlan += calculateTreatmentPlanTotals(pl).pendingTotal;
+          }
+        }
 
         if (bal.balance <= 0 && pendPlan <= 0) return;
 
@@ -738,8 +783,16 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
       return {
         definition,
         kpis: [
-          { label: `Saldo exigible (${currency})`, value: formatMoney(totBalance, currency), tone: 'amber' },
-          { label: `Pendiente planes aprobados (${currency})`, value: formatMoney(totPendPlan, currency), tone: 'teal' },
+          {
+            label: formatCurrencyHeading('Saldo exigible', currency, showCurrencyCode),
+            value: formatMoney(totBalance, currency, showCurrencyCode),
+            tone: 'amber',
+          },
+          {
+            label: formatCurrencyHeading('Pendiente planes aprobados', currency, showCurrencyCode),
+            value: formatMoney(totPendPlan, currency, showCurrencyCode),
+            tone: 'teal',
+          },
           { label: 'Pacientes', value: String(rowsData.length) },
         ],
         columns: [
@@ -752,10 +805,10 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         ],
         rows: rowsData.map((r) => [
           r.patientName,
-          formatMoney(r.charged, currency),
-          formatMoney(r.paid, currency),
-          formatMoney(r.balance, currency),
-          formatMoney(r.approvedPending, currency),
+          formatMoney(r.charged, currency, showCurrencyCode),
+          formatMoney(r.paid, currency, showCurrencyCode),
+          formatMoney(r.balance, currency, showCurrencyCode),
+          formatMoney(r.approvedPending, currency, showCurrencyCode),
           r.phone,
         ]),
         emptyMessage: 'No hay cuentas por cobrar pendientes.',
@@ -763,9 +816,10 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
     }
 
     case 'pacientes_deudores': {
+      const balancesByPatient = indexPatientBalances(activeTx);
       const debtors = activePatients
         .map((pat) => {
-          const bal = calculateSingleCurrencyBalance(pat.id, activeTx);
+          const bal = balancesByPatient.get(pat.id) || { charged: 0, paid: 0, balance: 0 };
           return { pat, bal };
         })
         .filter(({ bal }) => bal.balance > 0)
@@ -781,16 +835,20 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
             value: String(debtors.length),
             tone: debtors.length > 0 ? 'rose' : 'emerald',
           },
-          { label: `Deuda total (${currency})`, value: formatMoney(totDebt, currency), tone: 'rose' },
+          {
+            label: formatCurrencyHeading('Deuda total', currency, showCurrencyCode),
+            value: formatMoney(totDebt, currency, showCurrencyCode),
+            tone: 'rose',
+          },
         ],
         columns: ['Paciente', 'Documento', 'Teléfono', 'Cargos', 'Pagos', 'Saldo deudor'],
         rows: debtors.map(({ pat, bal }) => [
           pat.fullName,
           pat.dni || '—',
           pat.phone || '—',
-          formatMoney(bal.charged, currency),
-          formatMoney(bal.paid, currency),
-          formatMoney(Math.max(0, bal.balance), currency),
+          formatMoney(bal.charged, currency, showCurrencyCode),
+          formatMoney(bal.paid, currency, showCurrencyCode),
+          formatMoney(Math.max(0, bal.balance), currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay pacientes con deuda pendiente en cuenta corriente.',
       };
@@ -807,7 +865,11 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         definition,
         kpis: [
           { label: 'Cuentas por pagar', value: String(pendingLabs.length), tone: 'amber' },
-          { label: `Total pendiente (${currency})`, value: formatMoney(totalPayable, currency), tone: 'rose' },
+          {
+            label: formatCurrencyHeading('Total pendiente', currency, showCurrencyCode),
+            value: formatMoney(totalPayable, currency, showCurrencyCode),
+            tone: 'rose',
+          },
         ],
         columns: ['Fecha envío', 'Proveedor / Lab', 'Trabajo', 'Paciente', 'Estado', 'Vencimiento', 'Monto'],
         rows: pendingLabs.map((l) => [
@@ -817,7 +879,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
           l.patientName,
           LAB_STATUS_ES[l.status],
           l.dueDate || '—',
-          formatMoney(l.cost || 0, currency),
+          formatMoney(l.cost || 0, currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay órdenes o cuentas pendientes de pago a proveedores.',
       };
@@ -840,7 +902,10 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         kpis: [
           { label: 'Facturas / órdenes por pagar', value: String(invoices.length), tone: 'amber' },
           { label: 'Vencidas', value: String(overdue), tone: overdue > 0 ? 'rose' : 'emerald' },
-          { label: `Total a liquidar (${currency})`, value: formatMoney(totalPayable, currency) },
+          {
+            label: formatCurrencyHeading('Total a liquidar', currency, showCurrencyCode),
+            value: formatMoney(totalPayable, currency, showCurrencyCode),
+          },
         ],
         columns: ['Vencimiento', 'Proveedor', 'Concepto / Trabajo', 'Paciente', 'Situación', 'Estado', 'Importe'],
         rows: invoices.map((l) => {
@@ -852,7 +917,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
             l.patientName,
             isOverdue ? 'Vencida' : 'Por vencer',
             LAB_STATUS_ES[l.status],
-            formatMoney(l.cost || 0, currency),
+            formatMoney(l.cost || 0, currency, showCurrencyCode),
           ];
         }),
         emptyMessage: 'No hay facturas o trabajos vencidos/por pagar en el período.',
@@ -870,7 +935,11 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         definition,
         kpis: [
           { label: 'Pagos recibidos', value: String(payments.length), tone: 'teal' },
-          { label: `Total cobrado (${currency})`, value: formatMoney(totalPaid, currency), tone: 'emerald' },
+          {
+            label: formatCurrencyHeading('Total cobrado', currency, showCurrencyCode),
+            value: formatMoney(totalPaid, currency, showCurrencyCode),
+            tone: 'emerald',
+          },
         ],
         columns: ['Fecha', 'Recibo', 'Paciente', 'Concepto', 'Medio de pago', 'Profesional', 'Monto'],
         rows: payments.map((t) => [
@@ -880,7 +949,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
           t.concept,
           PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod,
           t.professionalName || '—',
-          formatMoney(t.amount, currency),
+          formatMoney(t.amount, currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay pagos de pacientes registrados en el rango seleccionado.',
       };
@@ -897,7 +966,11 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
         definition,
         kpis: [
           { label: 'Pagos / Egresos', value: String(expenses.length) },
-          { label: `Total pagado (${currency})`, value: formatMoney(totalPaid, currency), tone: 'rose' },
+          {
+            label: formatCurrencyHeading('Total pagado', currency, showCurrencyCode),
+            value: formatMoney(totalPaid, currency, showCurrencyCode),
+            tone: 'rose',
+          },
         ],
         columns: ['Fecha', 'Concepto / Proveedor', 'Medio de pago', 'Profesional', 'Notas', 'Monto'],
         rows: expenses.map((t) => [
@@ -906,7 +979,7 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
           PAYMENT_METHOD_LABELS[t.paymentMethod] || t.paymentMethod,
           t.professionalName || '—',
           t.notes || '—',
-          formatMoney(t.amount, currency),
+          formatMoney(t.amount, currency, showCurrencyCode),
         ]),
         emptyMessage: 'No hay pagos a proveedores ni egresos registrados en el rango seleccionado.',
       };
@@ -945,30 +1018,38 @@ export function buildReportData(input: BuildReportInput): ReportTableResult {
     }
 
     case 'pacientes_sin_cita': {
-      const hasFutureAppt = (pat: Patient) =>
-        activeAppts.some(
-          (a) =>
-            a.date >= todayStr &&
-            a.status !== 'cancelled' &&
-            a.status !== 'completed' &&
-            (a.patientId === pat.id ||
-              a.patientName.toLowerCase().trim() === pat.fullName.toLowerCase().trim())
-        );
+      const apptsIndex = indexAppointmentsByPatient(activeAppts);
+      const withoutFuture: Array<{ pat: Patient; lastVisit: string }> = [];
 
-      const withoutFuture = activePatients
-        .filter((pat) => !hasFutureAppt(pat))
-        .map((pat) => {
-          const pastAppts = activeAppts
-            .filter(
-              (a) =>
-                a.patientId === pat.id ||
-                a.patientName.toLowerCase().trim() === pat.fullName.toLowerCase().trim()
-            )
-            .sort((a, b) => b.date.localeCompare(a.date));
-          const lastVisit = pastAppts[0]?.date || msToDateStr(pat.createdAt);
-          return { pat, lastVisit };
-        })
-        .sort((a, b) => b.lastVisit.localeCompare(a.lastVisit));
+      for (const pat of activePatients) {
+        const byId = apptsIndex.byId.get(pat.id) || [];
+        const byName = apptsIndex.byName.get(pat.fullName.trim().toLowerCase()) || [];
+        const mergedMap = new Map<string, Appointment>();
+        for (const a of byId) mergedMap.set(a.id, a);
+        for (const a of byName) mergedMap.set(a.id, a);
+
+        let hasFuture = false;
+        let latestPastDate = '';
+
+        for (const a of mergedMap.values()) {
+          if (a.date >= todayStr && a.status !== 'cancelled' && a.status !== 'completed') {
+            hasFuture = true;
+            break;
+          }
+          if (a.date > latestPastDate) {
+            latestPastDate = a.date;
+          }
+        }
+
+        if (!hasFuture) {
+          withoutFuture.push({
+            pat,
+            lastVisit: latestPastDate || msToDateStr(pat.createdAt),
+          });
+        }
+      }
+
+      withoutFuture.sort((a, b) => b.lastVisit.localeCompare(a.lastVisit));
 
       return {
         definition,

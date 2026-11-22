@@ -8,12 +8,27 @@ import { db } from './db';
 
 export class LocalPatientRepository {
   public async getAll(workspaceId: string): Promise<Patient[]> {
-    return await db.patients
+    const own = await db.patients
       .where('workspaceId')
       .equals(workspaceId)
       .filter((p) => !p.deletedAt)
-      .reverse()
-      .sortBy('updatedAt');
+      .toArray();
+    const acceptedShares = await db.patientShares
+      .where('recipientWorkspaceId')
+      .equals(workspaceId)
+      .filter((s) => s.status === 'accepted')
+      .toArray();
+    if (acceptedShares.length === 0) {
+      return own.sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+    const sharedIds = Array.from(new Set(acceptedShares.map((s) => s.patientId)));
+    const sharedRows = (await db.patients.bulkGet(sharedIds)).filter(
+      (p): p is Patient => Boolean(p && !p.deletedAt)
+    );
+    const merged = new Map<string, Patient>();
+    own.forEach((p) => merged.set(p.id, p));
+    sharedRows.forEach((p) => merged.set(p.id, p));
+    return Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   public async getById(id: string): Promise<Patient | undefined> {

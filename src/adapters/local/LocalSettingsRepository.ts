@@ -18,6 +18,7 @@ export const createDefaultSettings = (workspaceId: string): AppSettings => ({
   transcriptionMode: 'dental',
   theme: 'light',
   currency: DEFAULT_CURRENCY,
+  showCurrencyCode: false,
   updatedAt: Date.now(),
 });
 
@@ -26,9 +27,11 @@ export class LocalSettingsRepository implements ISettingsRepository {
     const desktop = isTauriDesktop();
     const existing = await db.settings.where('workspaceId').equals(workspaceId).first();
     if (existing) {
-      const normalized: AppSettings = existing.currency
-        ? existing
-        : { ...existing, currency: DEFAULT_CURRENCY };
+      const normalized: AppSettings = {
+        ...existing,
+        currency: existing.currency || DEFAULT_CURRENCY,
+        showCurrencyCode: existing.showCurrencyCode ?? false,
+      };
       if (desktop && typeof localStorage !== 'undefined') {
         const applied = localStorage.getItem(EXE_MAX_DEFAULT_APPLIED_KEY);
         if (applied !== '1') {

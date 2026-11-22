@@ -3,235 +3,239 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
-import { Menu, Mic, Sun, Moon } from 'lucide-react';
-import { ActivityLogView } from './components/ActivityLogView';
-import { AgendaView } from './components/AgendaView';
-import { CajaView } from './components/CajaView';
-import { ConfirmModal } from './components/ConfirmModal';
-import { DictateHubView } from './components/DictateHubView';
-import { LaboratorioView } from './components/LaboratorioView';
-import { ManagePatientsView } from './components/ManagePatientsView';
-import { ManageProvidersView } from './components/ManageProvidersView';
-import { OnboardingModal } from './components/OnboardingModal';
-import { PatientFormView } from './components/PatientFormView';
-import { PatientSearchView } from './components/PatientSearchView';
-import { PresupuestosView } from './components/PresupuestosView';
-import { ProviderFormView } from './components/ProviderFormView';
-import { ReportesView } from './components/ReportesView';
-import { SettingsView } from './components/SettingsView';
-import { OdontoHelperLogo, Sidebar } from './components/Sidebar';
-import { SupabaseAuthView } from './components/SupabaseAuthView';
-import { Toast } from './components/Toast';
-import { getSupabaseClient } from './adapters/supabase/supabaseClient';
-import { REPORT_DEFINITIONS } from './core/clinic/reportEngine';
-import { shouldShowDownloadsTab } from './core/runtime/platform';
-import { AppView, useAppStore } from './store/useAppStore';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { RotateCw } from 'lucide-react';
+import { isTestAuthActive } from './core/auth/testAuth';
+import {
+  DEFAULT_AUTHENTICATED_ROUTE,
+  LOGIN_ROUTE,
+  PublicMarketingRoute,
+  SIGNUP_ROUTE,
+  parseAppLocation,
+  sanitizeInternalNextPath,
+} from './core/routing/appRoutes';
+import {
+  applyPrivateNoIndexMetadata,
+  applyPublicSeoMetadata,
+} from './core/seo/seoManager';
+import type {
+  PaidSubscriptionPlanTier,
+  SubscriptionBillingCycle,
+} from './core/types';
 
-const VIEW_TITLES: Record<AppView, string> = {
-  home: 'Dictar historia clínica',
-  recording: 'Grabación en curso',
-  detail: 'Dictar historia clínica / Detalle de sesión',
-  downloads: 'Dictar historia clínica / Descargas nativas',
-  privacy: 'Dictar historia clínica / Privacidad',
-  'patients-search': 'Ficha clínica del paciente',
-  'patient-new': 'Nuevo paciente',
-  'provider-new': 'Nuevo proveedor',
-  agenda: 'Agenda y calendario',
-  budgets: 'Presupuestos y tratamientos',
-  finance: 'Caja diaria, cobros y deudores',
-  lab: 'Órdenes de laboratorio',
-  reports: 'Reportes e indicadores',
-  'manage-patients': 'Herramientas / Administrar pacientes',
-  'manage-providers': 'Herramientas / Administrar proveedores',
-  'activity-log': 'Historial de actividad',
-  settings: 'Configuración',
-};
+// Code-split strictly by public vs authenticated surface so landing visitors NEVER download clinical/AI bundles.
+const LandingPage = lazy(() =>
+  import('./components/landing/LandingPage').then((m) => ({ default: m.LandingPage }))
+);
+const SupabaseAuthView = lazy(() =>
+  import('./components/SupabaseAuthView').then((m) => ({ default: m.SupabaseAuthView }))
+);
+const AuthenticatedApp = lazy(() =>
+  import('./components/AuthenticatedApp').then((m) => ({ default: m.AuthenticatedApp }))
+);
 
-const DICTATE_VIEWS: AppView[] = ['home', 'recording', 'detail', 'downloads', 'privacy'];
+const ShellLoadingFallback: React.FC = () => (
+  <div className="min-h-dvh flex items-center justify-center bg-[#F8F9F5] dark:bg-slate-950 px-4">
+    <div className="inline-flex items-center gap-2.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+      <RotateCw className="w-4 h-4 animate-spin text-teal-600" />
+      <span>Cargando OdontoHelper...</span>
+    </div>
+  </div>
+);
+
+function hasEnvSupabaseConfig(): boolean {
+  return Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+}
+
+function getMarketingPathForRoute(route: PublicMarketingRoute): string {
+  return route === 'landing' ? '/' : `/${route}`;
+}
 
 export default function App() {
-  const {
-    currentView,
-    activeReportType,
-    setView,
-    init,
-    authRequired,
-    requestMicrophonePermission,
-    isRecording,
-    transcribingSessionId,
-    settings,
-    updateSettings,
-  } = useAppStore();
+  const [urlKey, setUrlKey] = useState(() =>
+    typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}` : '/'
+  );
+  const [hasActiveSession, setHasActiveSession] = useState<boolean>(() => isTestAuthActive());
+  const [checkingSupabaseSession, setCheckingSupabaseSession] = useState<boolean>(() =>
+    !isTestAuthActive() && hasEnvSupabaseConfig()
+  );
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Check Supabase session dynamically ONLY when Supabase env vars are configured
+  useEffect(() => {
+    if (isTestAuthActive()) {
+      setHasActiveSession(true);
+      setCheckingSupabaseSession(false);
+      return;
+    }
 
-  const showDownloads = shouldShowDownloadsTab();
+    if (!hasEnvSupabaseConfig()) {
+      setHasActiveSession(false);
+      setCheckingSupabaseSession(false);
+      return;
+    }
+
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
+
+    import('./adapters/supabase/supabaseClient')
+      .then(async ({ getSupabaseClient }) => {
+        const supabase = getSupabaseClient();
+        if (!supabase || cancelled) {
+          if (!cancelled) setCheckingSupabaseSession(false);
+          return;
+        }
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!cancelled) {
+          setHasActiveSession(Boolean(session));
+          setCheckingSupabaseSession(false);
+        }
+        const sub = supabase.auth.onAuthStateChange((_event, nextSession) => {
+          setHasActiveSession(Boolean(nextSession) || isTestAuthActive());
+        });
+        unsub = () => sub.data.subscription.unsubscribe();
+      })
+      .catch(() => {
+        if (!cancelled) setCheckingSupabaseSession(false);
+      });
+
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+  }, []);
 
   useEffect(() => {
-    init();
-
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        init();
-      }
-    });
-    return () => {
-      subscription.unsubscribe();
+    const syncUrlKey = () => {
+      setUrlKey(`${window.location.pathname}${window.location.search}`);
     };
-  }, [init, setView]);
+    window.addEventListener('popstate', syncUrlKey);
+    return () => window.removeEventListener('popstate', syncUrlKey);
+  }, []);
 
-  // Prevent accidental tab closure or refresh during recording or transcription
+  const parsed = parseAppLocation(
+    typeof window !== 'undefined' ? window.location.pathname : '/',
+    typeof window !== 'undefined' ? window.location.search : ''
+  );
+
+  // Ensure light warm porcelain aesthetic on public landing if document was dark from prior session
   useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isRecording || transcribingSessionId) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
+    if (!hasActiveSession && parsed.publicRoute) {
+      applyPublicSeoMetadata(parsed.publicRoute);
+    } else if (!hasActiveSession && parsed.isLoginRoute) {
+      applyPrivateNoIndexMetadata(
+        parsed.isSignupRoute
+          ? 'Prueba gratis 7 días · OdontoHelper Uruguay'
+          : 'Iniciar sesión · OdontoHelper'
+      );
+    }
+  }, [hasActiveSession, parsed.publicRoute, parsed.isLoginRoute, parsed.isSignupRoute, urlKey]);
+
+  const navigateToUrl = useCallback((targetUrl: string, replace = false) => {
+    if (typeof window === 'undefined') return;
+    if (replace) {
+      window.history.replaceState(null, '', targetUrl);
+    } else {
+      window.history.pushState(null, '', targetUrl);
+    }
+    setUrlKey(`${window.location.pathname}${window.location.search}`);
+  }, []);
+
+  const handleNavigateMarketing = useCallback(
+    (route: PublicMarketingRoute) => {
+      navigateToUrl(getMarketingPathForRoute(route));
+    },
+    [navigateToUrl]
+  );
+
+  const handleNavigateAuth = useCallback(
+    (
+      mode: 'login' | 'signup',
+      plan?: PaidSubscriptionPlanTier,
+      cycle?: SubscriptionBillingCycle
+    ) => {
+      if (mode === 'login') {
+        navigateToUrl(LOGIN_ROUTE);
+        return;
       }
-    };
+      const params = new URLSearchParams();
+      if (plan) params.set('plan', plan);
+      if (cycle) params.set('ciclo', cycle);
+      const q = params.toString();
+      navigateToUrl(q ? `${SIGNUP_ROUTE}?${q}` : SIGNUP_ROUTE);
+    },
+    [navigateToUrl]
+  );
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [isRecording, transcribingSessionId]);
+  const handleAuthenticated = useCallback(() => {
+    const currentParsed = parseAppLocation(window.location.pathname, window.location.search);
+    const destination =
+      sanitizeInternalNextPath(currentParsed.nextPath) || DEFAULT_AUTHENTICATED_ROUTE;
+    if (
+      window.location.pathname === '/' ||
+      window.location.pathname === LOGIN_ROUTE ||
+      window.location.pathname === SIGNUP_ROUTE
+    ) {
+      window.history.replaceState(null, '', destination);
+      setUrlKey(destination);
+    }
+    setHasActiveSession(true);
+  }, []);
 
-  if (authRequired) {
+  const handleSignedOut = useCallback(() => {
+    setHasActiveSession(false);
+    navigateToUrl('/', true);
+  }, [navigateToUrl]);
+
+  // If authenticated -> lazy-load and mount the full clinical application
+  if (hasActiveSession) {
     return (
-      <>
-        <SupabaseAuthView onAuthenticated={() => init()} />
-        <Toast />
-      </>
+      <Suspense fallback={<ShellLoadingFallback />}>
+        <AuthenticatedApp onSignedOut={handleSignedOut} />
+      </Suspense>
     );
   }
 
-  const isDetailView = currentView === 'detail';
-  const isDictateView = DICTATE_VIEWS.includes(currentView);
-  const isDark =
-    settings?.theme === 'dark' ||
-    (settings?.theme === 'system' &&
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches);
+  // Show lightweight spinner only when checking an existing Supabase session on a non-public route
+  if (checkingSupabaseSession && !parsed.publicRoute) {
+    return <ShellLoadingFallback />;
+  }
 
-  const activeReportLabel =
-    REPORT_DEFINITIONS.find((r) => r.id === activeReportType)?.label || 'Caja';
-  const breadcrumbTitle =
-    currentView === 'reports'
-      ? `Reportes / ${activeReportLabel}`
-      : VIEW_TITLES[currentView];
+  // Public Commercial Landing & Marketing Subpages (/, /funciones, /dictado-por-voz, /planes, /preguntas-frecuentes)
+  if (parsed.publicRoute) {
+    return (
+      <Suspense fallback={<ShellLoadingFallback />}>
+        <LandingPage
+          activeRoute={parsed.publicRoute}
+          onNavigateMarketing={handleNavigateMarketing}
+          onNavigateAuth={handleNavigateAuth}
+        />
+      </Suspense>
+    );
+  }
+
+  // Auth Views (/login, /registro) + protected routes (/compartir/:token or deep clinical paths when unauthenticated)
+  const nextRedirect = parsed.isLoginRoute
+    ? parsed.nextPath
+    : sanitizeInternalNextPath(`${window.location.pathname}${window.location.search}`);
+
+  if (!parsed.isLoginRoute && nextRedirect) {
+    const redirectUrl = `${LOGIN_ROUTE}?next=${encodeURIComponent(nextRedirect)}`;
+    if (`${window.location.pathname}${window.location.search}` !== redirectUrl) {
+      window.history.replaceState(null, '', redirectUrl);
+    }
+  }
 
   return (
-    <div
-      className={`flex bg-[#EDEFEA] text-slate-800 dark:bg-slate-950 dark:text-slate-100 transition-colors ${
-        isDetailView
-          ? 'min-h-full lg:h-dvh lg:overflow-hidden print:h-auto print:overflow-visible'
-          : 'min-h-full'
-      }`}
-    >
-      {/* Left Sidebar Navigation */}
-      <Sidebar
-        mobileOpen={mobileMenuOpen}
-        onCloseMobile={() => setMobileMenuOpen(false)}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+    <Suspense fallback={<ShellLoadingFallback />}>
+      <SupabaseAuthView
+        onAuthenticated={handleAuthenticated}
+        initialMode={parsed.isSignupRoute ? 'signup' : 'login'}
+        initialPlan={parsed.requestedPlan}
+        initialCycle={parsed.requestedCycle}
+        onBackToLanding={() => navigateToUrl('/')}
       />
-
-      {/* Right Workspace Column */}
-      <div
-        className={`flex-1 min-w-0 flex flex-col ${
-          isDetailView ? 'lg:h-dvh lg:overflow-hidden print:h-auto print:overflow-visible' : ''
-        }`}
-      >
-        {/* Contextual Workspace Header (suppressed during active recording) */}
-        {currentView !== 'recording' && (
-          <header className="no-print sticky top-0 z-30 h-16 px-4 sm:px-6 lg:px-8 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-4 shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <button
-                type="button"
-                onClick={() => setMobileMenuOpen(true)}
-                className="lg:hidden p-2 -ml-1 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                aria-label="Abrir menú lateral"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
-
-              <div className="lg:hidden">
-                <OdontoHelperLogo />
-              </div>
-
-              <div className="hidden lg:flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 truncate">
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  OdontoHelper
-                </span>
-                <span aria-hidden="true">/</span>
-                <span className="truncate">{breadcrumbTitle}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => updateSettings({ theme: isDark ? 'light' : 'dark' })}
-                className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                title={isDark ? 'Cambiar a tema claro cálido' : 'Cambiar a tema oscuro'}
-                aria-label="Cambiar tema visual"
-              >
-                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </button>
-
-              {!isDictateView && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void requestMicrophonePermission();
-                    setView('home');
-                  }}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-xs whitespace-nowrap"
-                >
-                  <Mic className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Dictar historia</span>
-                  <span className="sm:hidden">Dictar</span>
-                </button>
-              )}
-            </div>
-          </header>
-        )}
-
-        {/* Main View Router */}
-        <main
-          className={`flex-1 ${
-            isDetailView ? 'lg:min-h-0 lg:overflow-hidden print:overflow-visible' : ''
-          }`}
-        >
-          {isDictateView && (
-            <DictateHubView />
-          )}
-          {currentView === 'downloads' && !showDownloads && <DictateHubView />}
-          {currentView === 'patients-search' && <PatientSearchView />}
-          {currentView === 'patient-new' && <PatientFormView />}
-          {currentView === 'provider-new' && <ProviderFormView />}
-          {currentView === 'agenda' && <AgendaView />}
-          {currentView === 'budgets' && <PresupuestosView />}
-          {currentView === 'finance' && <CajaView />}
-          {currentView === 'lab' && <LaboratorioView />}
-          {currentView === 'reports' && <ReportesView />}
-          {currentView === 'manage-patients' && <ManagePatientsView />}
-          {currentView === 'manage-providers' && <ManageProvidersView />}
-          {currentView === 'activity-log' && <ActivityLogView />}
-          {currentView === 'settings' && <SettingsView />}
-        </main>
-      </div>
-
-      {/* Global Modals & Toast */}
-      <OnboardingModal />
-      <ConfirmModal />
-      <Toast />
-    </div>
+    </Suspense>
   );
 }

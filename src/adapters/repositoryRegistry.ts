@@ -1,6 +1,7 @@
 import {
   IAuthProvider,
   IGlossaryRepository,
+  IPatientFileStore,
   ISessionRepository,
   ISettingsRepository,
   ITranscriptRepository,
@@ -19,7 +20,7 @@ import {
   LocalFinancialTransactionRepository,
   LocalLabOrderRepository,
   LocalOdontogramRepository,
-  LocalPatientFileStore,
+  LocalPatientShareRepository,
   LocalPeriodontogramRepository,
   LocalProfessionalRepository,
   LocalTreatmentPlanRepository,
@@ -27,25 +28,7 @@ import {
 import { LocalSessionRepository } from './local/LocalSessionRepository';
 import { LocalSettingsRepository } from './local/LocalSettingsRepository';
 import { LocalTranscriptRepository } from './local/LocalTranscriptRepository';
-import { getNeonToken, getPreferredDbProvider } from './neon/neonClient';
-import {
-  NeonActivityRepository,
-  NeonAppointmentRepository,
-  NeonAuthProvider,
-  NeonEvolutionRepository,
-  NeonFinancialTransactionRepository,
-  NeonGlossaryRepository,
-  NeonLabOrderRepository,
-  NeonOdontogramRepository,
-  NeonPatientRepository,
-  NeonPeriodontogramRepository,
-  NeonProfessionalRepository,
-  NeonProviderRepository,
-  NeonSessionRepository,
-  NeonSettingsRepository,
-  NeonTranscriptRepository,
-  NeonTreatmentPlanRepository,
-} from './neon/NeonRepositories';
+import { isTestAuthActive } from '../core/auth/testAuth';
 import { isSupabaseConfigured } from './supabase/supabaseClient';
 import {
   SupabaseActivityRepository,
@@ -56,35 +39,72 @@ import {
   SupabaseGlossaryRepository,
   SupabaseLabOrderRepository,
   SupabaseOdontogramRepository,
+  SupabasePatientFileStore,
   SupabasePatientRepository,
+  SupabasePatientShareRepository,
   SupabasePeriodontogramRepository,
   SupabaseProfessionalRepository,
   SupabaseProviderRepository,
   SupabaseSessionRepository,
   SupabaseSettingsRepository,
+  SupabaseSubscriptionRepository,
   SupabaseTranscriptRepository,
   SupabaseTreatmentPlanRepository,
 } from './supabase/SupabaseRepositories';
+import {
+  getOrCreateLocalSubscription,
+  listLocalTransferRequests,
+  saveLocalTransferRequest,
+} from '../core/clinic/localSubscriptionStore';
 
-// Audio PCM chunks and high-res imaging attachments ALWAYS stay strictly local in browser IndexedDB
+// Audio PCM chunks ALWAYS stay strictly local in browser IndexedDB (never uploaded on free tier).
 export const sharedAudioStore = new LocalAudioStore();
-export const sharedPatientFileStore = new LocalPatientFileStore();
 
-function pickRepo<T>(supa: T, neon: T, local: T): T {
-  const preferred = getPreferredDbProvider();
-  const hasNeonToken = Boolean(getNeonToken());
-  const supaReady = isSupabaseConfigured();
-
-  if (preferred === 'neon' && hasNeonToken) return neon;
-  if (!supaReady && hasNeonToken) return neon;
-  if (supaReady) return supa;
-  return local;
+// Clinical data uses Supabase when configured (unless testing locally with drtest), otherwise local IndexedDB.
+function pickDataRepo<T>(supa: T, local: T): T {
+  return isSupabaseConfigured() && !isTestAuthActive() ? supa : local;
 }
+
+export class CloudRequiredPatientFileError extends Error {
+  constructor(
+    message = 'Los archivos clínicos y radiografías deben almacenarse exclusivamente en la nube (Supabase). Configurá e iniciá sesión en Supabase para acceder o subir archivos.'
+  ) {
+    super(message);
+    this.name = 'CloudRequiredPatientFileError';
+  }
+}
+
+class CloudRequiredPatientFileStore implements IPatientFileStore {
+  public async getAll(): Promise<never> {
+    throw new CloudRequiredPatientFileError();
+  }
+  public async getByPatientId(): Promise<never> {
+    throw new CloudRequiredPatientFileError();
+  }
+  public async add(): Promise<never> {
+    throw new CloudRequiredPatientFileError();
+  }
+  public async delete(): Promise<never> {
+    throw new CloudRequiredPatientFileError();
+  }
+}
+
+const cloudRequiredPatientFile = new CloudRequiredPatientFileStore();
+const supaPatientFile = new SupabasePatientFileStore();
+const patientFileTarget = () =>
+  pickDataRepo<IPatientFileStore>(supaPatientFile, cloudRequiredPatientFile);
+
+// Radiographs, clinical photos, and patient documents MUST live in Supabase (Storage + table), never IndexedDB
+export const sharedPatientFileStore: IPatientFileStore = {
+  getAll: (wsId) => patientFileTarget().getAll(wsId),
+  getByPatientId: (wsId, patientId) => patientFileTarget().getByPatientId(wsId, patientId),
+  add: (file) => patientFileTarget().add(file),
+  delete: (id) => patientFileTarget().delete(id),
+};
 
 const localSession = new LocalSessionRepository();
 const supaSession = new SupabaseSessionRepository();
-const neonSession = new NeonSessionRepository();
-const sessionTarget = () => pickRepo<ISessionRepository>(supaSession, neonSession, localSession);
+const sessionTarget = () => pickDataRepo<ISessionRepository>(supaSession, localSession);
 
 export const sharedSessionRepo: ISessionRepository = {
   getAll: (wsId) => sessionTarget().getAll(wsId),
@@ -97,9 +117,8 @@ export const sharedSessionRepo: ISessionRepository = {
 
 const localTranscript = new LocalTranscriptRepository();
 const supaTranscript = new SupabaseTranscriptRepository();
-const neonTranscript = new NeonTranscriptRepository();
 const transcriptTarget = () =>
-  pickRepo<ITranscriptRepository>(supaTranscript, neonTranscript, localTranscript);
+  pickDataRepo<ITranscriptRepository>(supaTranscript, localTranscript);
 
 export const sharedTranscriptRepo: ITranscriptRepository = {
   getBySessionId: (id) => transcriptTarget().getBySessionId(id),
@@ -113,9 +132,7 @@ export const sharedTranscriptRepo: ITranscriptRepository = {
 
 const localSettings = new LocalSettingsRepository();
 const supaSettings = new SupabaseSettingsRepository();
-const neonSettings = new NeonSettingsRepository();
-const settingsTarget = () =>
-  pickRepo<ISettingsRepository>(supaSettings, neonSettings, localSettings);
+const settingsTarget = () => pickDataRepo<ISettingsRepository>(supaSettings, localSettings);
 
 export const sharedSettingsRepo: ISettingsRepository = {
   get: (wsId) => settingsTarget().get(wsId),
@@ -124,9 +141,7 @@ export const sharedSettingsRepo: ISettingsRepository = {
 
 const localGlossary = new LocalGlossaryRepository();
 const supaGlossary = new SupabaseGlossaryRepository();
-const neonGlossary = new NeonGlossaryRepository();
-const glossaryTarget = () =>
-  pickRepo<IGlossaryRepository>(supaGlossary, neonGlossary, localGlossary);
+const glossaryTarget = () => pickDataRepo<IGlossaryRepository>(supaGlossary, localGlossary);
 
 export const sharedGlossaryRepo: IGlossaryRepository = {
   getAll: (wsId) => glossaryTarget().getAll(wsId),
@@ -138,8 +153,11 @@ export const sharedGlossaryRepo: IGlossaryRepository = {
 
 const localAuth = new LocalAuthProvider();
 const supaAuth = new SupabaseAuthProvider();
-const neonAuth = new NeonAuthProvider();
-const authTarget = () => pickRepo<IAuthProvider>(supaAuth, neonAuth, localAuth);
+const authTarget = (): IAuthProvider => {
+  if (isTestAuthActive()) return localAuth;
+  if (isSupabaseConfigured()) return supaAuth;
+  return localAuth;
+};
 
 export const sharedAuthProvider: IAuthProvider = {
   getCurrentWorkspace: () => authTarget().getCurrentWorkspace(),
@@ -148,8 +166,7 @@ export const sharedAuthProvider: IAuthProvider = {
 
 const localPatient = new LocalPatientRepository();
 const supaPatient = new SupabasePatientRepository();
-const neonPatient = new NeonPatientRepository();
-const patientTarget = () => pickRepo(supaPatient, neonPatient, localPatient);
+const patientTarget = () => pickDataRepo(supaPatient, localPatient);
 
 export const sharedPatientRepo = {
   getAll: (wsId: string) => patientTarget().getAll(wsId),
@@ -162,8 +179,7 @@ export const sharedPatientRepo = {
 
 const localProvider = new LocalProviderRepository();
 const supaProvider = new SupabaseProviderRepository();
-const neonProvider = new NeonProviderRepository();
-const providerTarget = () => pickRepo(supaProvider, neonProvider, localProvider);
+const providerTarget = () => pickDataRepo(supaProvider, localProvider);
 
 export const sharedProviderRepo = {
   getAll: (wsId: string) => providerTarget().getAll(wsId),
@@ -176,8 +192,7 @@ export const sharedProviderRepo = {
 
 const localAppointment = new LocalAppointmentRepository();
 const supaAppointment = new SupabaseAppointmentRepository();
-const neonAppointment = new NeonAppointmentRepository();
-const appointmentTarget = () => pickRepo(supaAppointment, neonAppointment, localAppointment);
+const appointmentTarget = () => pickDataRepo(supaAppointment, localAppointment);
 
 export const sharedAppointmentRepo = {
   getAll: (wsId: string) => appointmentTarget().getAll(wsId),
@@ -190,8 +205,7 @@ export const sharedAppointmentRepo = {
 
 const localActivity = new LocalActivityRepository();
 const supaActivity = new SupabaseActivityRepository();
-const neonActivity = new NeonActivityRepository();
-const activityTarget = () => pickRepo(supaActivity, neonActivity, localActivity);
+const activityTarget = () => pickDataRepo(supaActivity, localActivity);
 
 export const sharedActivityRepo = {
   getAll: (wsId: string, limit?: number) => activityTarget().getAll(wsId, limit),
@@ -201,8 +215,7 @@ export const sharedActivityRepo = {
 
 const localProfessional = new LocalProfessionalRepository();
 const supaProfessional = new SupabaseProfessionalRepository();
-const neonProfessional = new NeonProfessionalRepository();
-const professionalTarget = () => pickRepo(supaProfessional, neonProfessional, localProfessional);
+const professionalTarget = () => pickDataRepo(supaProfessional, localProfessional);
 
 export const sharedProfessionalRepo = {
   getAll: (wsId: string) => professionalTarget().getAll(wsId),
@@ -215,8 +228,7 @@ export const sharedProfessionalRepo = {
 
 const localEvolution = new LocalEvolutionRepository();
 const supaEvolution = new SupabaseEvolutionRepository();
-const neonEvolution = new NeonEvolutionRepository();
-const evolutionTarget = () => pickRepo(supaEvolution, neonEvolution, localEvolution);
+const evolutionTarget = () => pickDataRepo(supaEvolution, localEvolution);
 
 export const sharedEvolutionRepo = {
   getAll: (wsId: string) => evolutionTarget().getAll(wsId),
@@ -228,8 +240,7 @@ export const sharedEvolutionRepo = {
 
 const localOdontogram = new LocalOdontogramRepository();
 const supaOdontogram = new SupabaseOdontogramRepository();
-const neonOdontogram = new NeonOdontogramRepository();
-const odontogramTarget = () => pickRepo(supaOdontogram, neonOdontogram, localOdontogram);
+const odontogramTarget = () => pickDataRepo(supaOdontogram, localOdontogram);
 
 export const sharedOdontogramRepo = {
   getAll: (wsId: string) => odontogramTarget().getAll(wsId),
@@ -242,9 +253,7 @@ export const sharedOdontogramRepo = {
 
 const localPeriodontogram = new LocalPeriodontogramRepository();
 const supaPeriodontogram = new SupabasePeriodontogramRepository();
-const neonPeriodontogram = new NeonPeriodontogramRepository();
-const periodontogramTarget = () =>
-  pickRepo(supaPeriodontogram, neonPeriodontogram, localPeriodontogram);
+const periodontogramTarget = () => pickDataRepo(supaPeriodontogram, localPeriodontogram);
 
 export const sharedPeriodontogramRepo = {
   getAll: (wsId: string) => periodontogramTarget().getAll(wsId),
@@ -257,9 +266,7 @@ export const sharedPeriodontogramRepo = {
 
 const localTreatmentPlan = new LocalTreatmentPlanRepository();
 const supaTreatmentPlan = new SupabaseTreatmentPlanRepository();
-const neonTreatmentPlan = new NeonTreatmentPlanRepository();
-const treatmentPlanTarget = () =>
-  pickRepo(supaTreatmentPlan, neonTreatmentPlan, localTreatmentPlan);
+const treatmentPlanTarget = () => pickDataRepo(supaTreatmentPlan, localTreatmentPlan);
 
 export const sharedTreatmentPlanRepo = {
   getAll: (wsId: string) => treatmentPlanTarget().getAll(wsId),
@@ -272,8 +279,7 @@ export const sharedTreatmentPlanRepo = {
 
 const localFinancialTx = new LocalFinancialTransactionRepository();
 const supaFinancialTx = new SupabaseFinancialTransactionRepository();
-const neonFinancialTx = new NeonFinancialTransactionRepository();
-const financialTxTarget = () => pickRepo(supaFinancialTx, neonFinancialTx, localFinancialTx);
+const financialTxTarget = () => pickDataRepo(supaFinancialTx, localFinancialTx);
 
 export const sharedFinancialTxRepo = {
   getAll: (wsId: string) => financialTxTarget().getAll(wsId),
@@ -286,8 +292,7 @@ export const sharedFinancialTxRepo = {
 
 const localLabOrder = new LocalLabOrderRepository();
 const supaLabOrder = new SupabaseLabOrderRepository();
-const neonLabOrder = new NeonLabOrderRepository();
-const labOrderTarget = () => pickRepo(supaLabOrder, neonLabOrder, localLabOrder);
+const labOrderTarget = () => pickDataRepo(supaLabOrder, localLabOrder);
 
 export const sharedLabOrderRepo = {
   getAll: (wsId: string) => labOrderTarget().getAll(wsId),
@@ -296,3 +301,39 @@ export const sharedLabOrderRepo = {
     labOrderTarget().update(id, patch),
   delete: (id: string) => labOrderTarget().delete(id),
 };
+
+const localPatientShare = new LocalPatientShareRepository();
+const supaPatientShare = new SupabasePatientShareRepository();
+const patientShareTarget = () => pickDataRepo(supaPatientShare, localPatientShare);
+
+export const sharedPatientShareRepo = {
+  getAllForWorkspace: (wsId: string) => patientShareTarget().getAllForWorkspace(wsId),
+  create: (share: Parameters<LocalPatientShareRepository['create']>[0]) =>
+    patientShareTarget().create(share),
+  getPreviewByToken: (token: string, callerWorkspaceId?: string) =>
+    patientShareTarget().getPreviewByToken(token, callerWorkspaceId),
+  acceptShare: (input: Parameters<LocalPatientShareRepository['acceptShare']>[0]) =>
+    patientShareTarget().acceptShare(input),
+  unlinkShare: (shareId: string) => patientShareTarget().unlinkShare(shareId),
+};
+
+const supaSubscription = new SupabaseSubscriptionRepository();
+const localSubscriptionRepo = {
+  getForWorkspace: async (wsId: string) => getOrCreateLocalSubscription(wsId),
+  listTransferRequests: async (wsId: string) => listLocalTransferRequests(wsId),
+  submitTransferRequest: async (
+    req: Parameters<SupabaseSubscriptionRepository['submitTransferRequest']>[0]
+  ) => {
+    saveLocalTransferRequest(req);
+  },
+};
+const subscriptionTarget = () => pickDataRepo(supaSubscription, localSubscriptionRepo);
+
+export const sharedSubscriptionRepo = {
+  getForWorkspace: (wsId: string) => subscriptionTarget().getForWorkspace(wsId),
+  listTransferRequests: (wsId: string) => subscriptionTarget().listTransferRequests(wsId),
+  submitTransferRequest: (
+    req: Parameters<SupabaseSubscriptionRepository['submitTransferRequest']>[0]
+  ) => subscriptionTarget().submitTransferRequest(req),
+};
+

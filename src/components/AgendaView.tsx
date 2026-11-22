@@ -9,40 +9,30 @@ import {
   CalendarDays,
   CheckCircle2,
   Sparkles,
-  MessageCircle,
   Mail,
   CalendarPlus,
   Download,
   AlertTriangle,
   Cake,
-  X,
 } from 'lucide-react';
 import {
-  buildAppointmentIcs,
+  MONTHS_ES,
+  downloadAppointmentIcsFile,
   generateAppointmentMailtoUrl,
   generateGoogleCalendarUrl,
   generateWhatsAppUrl,
   getPatientPendingLabAlerts,
   getUpcomingBirthdays,
+  toLocalIsoDate,
 } from '../core/clinic/clinicHelpers';
 import { Appointment, AppointmentStatus } from '../core/types';
 import { useAppStore } from '../store/useAppStore';
+import { Button } from './ui/Button';
+import { Modal } from './ui/Modal';
+import { WhatsAppIcon } from './ui/WhatsAppIcon';
+import { buttonClass, inputClass, inputMonoClass, labelClass, selectClass } from './ui/uiClasses';
 
 const WEEKDAYS_ES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
-const MONTHS_ES = [
-  'Enero',
-  'Febrero',
-  'Marzo',
-  'Abril',
-  'Mayo',
-  'Junio',
-  'Julio',
-  'Agosto',
-  'Septiembre',
-  'Octubre',
-  'Noviembre',
-  'Diciembre',
-];
 
 const STATUS_LABELS: Record<AppointmentStatus, { label: string; textClass: string }> = {
   pending: { label: 'Pendiente', textClass: 'text-amber-700 dark:text-amber-300' },
@@ -54,10 +44,7 @@ const STATUS_LABELS: Record<AppointmentStatus, { label: string; textClass: strin
 };
 
 function toDateKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return toLocalIsoDate(date);
 }
 
 export const AgendaView: React.FC = () => {
@@ -77,64 +64,57 @@ export const AgendaView: React.FC = () => {
     startRecording,
     openConfirm,
     showToast,
+    moduleQuery,
+    setModuleQuery,
   } = useAppStore();
 
   const today = new Date();
   const todayKey = toDateKey(today);
 
-  const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
-  const [professionalFilter, setProfessionalFilter] = useState<string>(
-    activeProfessionalId || 'all'
+  const viewMode: 'month' | 'week' | 'day' =
+    moduleQuery.tab === 'week' || moduleQuery.tab === 'day' ? moduleQuery.tab : 'month';
+  const initialDate = selectedAgendaDate || moduleQuery.from || todayKey;
+  const initialParsed = new Date(`${initialDate}T12:00:00`);
+  const validInit = !Number.isNaN(initialParsed.getTime()) ? initialParsed : today;
+  const [cursorYear, setCursorYear] = useState(validInit.getFullYear());
+  const [cursorMonth, setCursorMonth] = useState(validInit.getMonth());
+  const [selectedDate, setSelectedDateState] = useState(
+    !Number.isNaN(initialParsed.getTime()) ? initialDate : todayKey
   );
-  const [filterCustomized, setFilterCustomized] = useState(false);
-  const [cursorYear, setCursorYear] = useState(today.getFullYear());
-  const [cursorMonth, setCursorMonth] = useState(today.getMonth());
-  const [selectedDate, setSelectedDate] = useState(todayKey);
   const [showNewModal, setShowNewModal] = useState(false);
   const [showCaptureModal, setShowCaptureModal] = useState(false);
   const [captureText, setCaptureText] = useState('');
   const [capturePatientId, setCapturePatientId] = useState('');
 
-  useEffect(() => {
-    if (!filterCustomized && activeProfessionalId) {
-      setProfessionalFilter(activeProfessionalId);
-    }
-  }, [activeProfessionalId, filterCustomized]);
+  const setSelectedDate = (nextDate: string) => {
+    setSelectedDateState(nextDate);
+    setModuleQuery({ from: nextDate === todayKey ? undefined : nextDate });
+  };
 
   useEffect(() => {
     if (!selectedAgendaDate) return;
     const parsed = new Date(`${selectedAgendaDate}T12:00:00`);
     if (!Number.isNaN(parsed.getTime())) {
-      setSelectedDate(selectedAgendaDate);
+      setSelectedDateState(selectedAgendaDate);
       setCursorYear(parsed.getFullYear());
       setCursorMonth(parsed.getMonth());
+      setModuleQuery({ from: selectedAgendaDate === todayKey ? undefined : selectedAgendaDate });
     }
     setAgendaDate(null);
-  }, [selectedAgendaDate, setAgendaDate]);
+  }, [selectedAgendaDate, setAgendaDate, todayKey, setModuleQuery]);
 
   // Appointment Form State
   const [patientId, setPatientId] = useState('');
   const [patientNameInput, setPatientNameInput] = useState('');
   const [providerId, setProviderId] = useState('');
-  const [professionalId, setProfessionalId] = useState(activeProfessionalId || '');
   const [startTime, setStartTime] = useState('09:00');
   const [durationMin, setDurationMin] = useState(30);
   const [procedure, setProcedure] = useState('');
   const [notes, setNotes] = useState('');
 
-  const activeProfessional = useMemo(
-    () => professionals.find((pr) => pr.id === activeProfessionalId) || null,
-    [professionals, activeProfessionalId]
-  );
-
   const filteredAppointments = useMemo(() => {
-    if (professionalFilter === 'all') return appointments;
-    const isViewingOwner =
-      professionals.find((pr) => pr.id === professionalFilter)?.role === 'owner';
-    return appointments.filter(
-      (a) => a.professionalId === professionalFilter || (isViewingOwner && !a.professionalId)
-    );
-  }, [appointments, professionalFilter, professionals]);
+    return appointments.filter((a) => !a.deletedAt);
+  }, [appointments]);
 
   // Calendar grid calculation (Monday-first)
   const calendarDays = useMemo(() => {
@@ -222,7 +202,6 @@ export const AgendaView: React.FC = () => {
     setPatientId('');
     setPatientNameInput('');
     setProviderId('');
-    setProfessionalId(activeProfessionalId || professionals[0]?.id || '');
     setStartTime('09:30');
     setDurationMin(30);
     setProcedure('');
@@ -240,14 +219,15 @@ export const AgendaView: React.FC = () => {
     }
 
     const chosenProvider = providers.find((pr) => pr.id === providerId);
-    const chosenProfessional = professionals.find((pr) => pr.id === professionalId);
+    const activeProf =
+      professionals.find((pr) => pr.id === activeProfessionalId) || professionals[0];
     await createAppointment({
       patientId: chosenPatient?.id,
       patientName: resolvedName,
       providerId: chosenProvider?.id,
       providerName: chosenProvider?.name,
-      professionalId: chosenProfessional?.id,
-      professionalName: chosenProfessional?.fullName,
+      professionalId: activeProf?.id,
+      professionalName: activeProf?.fullName,
       date: selectedDate,
       startTime,
       durationMin,
@@ -259,14 +239,7 @@ export const AgendaView: React.FC = () => {
   };
 
   const handleDownloadIcs = (appt: Appointment) => {
-    const ics = buildAppointmentIcs(appt);
-    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `turno_${appt.date}_${appt.startTime.replace(':', '')}.ics`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadAppointmentIcsFile(appt);
   };
 
   const formattedSelectedDate = new Date(`${selectedDate}T12:00:00`).toLocaleDateString('es-AR', {
@@ -288,7 +261,6 @@ export const AgendaView: React.FC = () => {
       appt.patientName,
       labOrders
     );
-    const profObj = professionals.find((pr) => pr.id === appt.professionalId);
 
     const reminderMsg = `Hola ${appt.patientName}, te recordamos tu turno odontológico el ${appt.date} a las ${appt.startTime} hs (${appt.procedure}). ¡Te esperamos!`;
     const waUrl = generateWhatsAppUrl(patient?.phone, reminderMsg);
@@ -324,20 +296,12 @@ export const AgendaView: React.FC = () => {
               )}
             </div>
 
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1 flex items-center gap-2">
-              {profObj && (
-                <span
-                  className="w-2.5 h-2.5 rounded-xs shrink-0"
-                  style={{ backgroundColor: profObj.agendaColor }}
-                  title={profObj.fullName}
-                />
-              )}
-              <span>{appt.patientName}</span>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+              {appt.patientName}
             </div>
 
             <div className="text-xs text-slate-600 dark:text-slate-300">
               {appt.procedure}
-              {appt.professionalName ? ` · Prof: ${appt.professionalName}` : ''}
               {appt.providerName ? ` · Lab: ${appt.providerName}` : ''}
             </div>
 
@@ -409,10 +373,10 @@ export const AgendaView: React.FC = () => {
               href={waUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/70"
+              className={buttonClass({ variant: 'whatsapp', size: 'xs' })}
               title="Enviar recordatorio por WhatsApp"
             >
-              <MessageCircle className="w-3 h-3" />
+              <WhatsAppIcon className="w-3.5 h-3.5" />
               <span>WhatsApp</span>
             </a>
           )}
@@ -459,14 +423,14 @@ export const AgendaView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-slate-800/80">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            Agenda y calendario{activeProfessional ? ` · ${activeProfessional.fullName}` : ''}
+            Agenda
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Turnos asignados al profesional activo, sala de espera, control de cancelaciones y captura automática desde dictado clínico.
+            Turnos agendados del consultorio, control de cancelaciones y captura automática desde dictado por voz.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => {
@@ -523,9 +487,9 @@ export const AgendaView: React.FC = () => {
         </button>
       </div>
 
-      {/* View Mode Switch + Professional Filter */}
+      {/* View Mode Switch */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 text-xs self-start">
+        <div className="grid grid-cols-3 sm:inline-flex rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 text-xs w-full sm:w-auto">
           {[
             { id: 'month' as const, label: 'Mes' },
             { id: 'week' as const, label: 'Semana' },
@@ -534,7 +498,9 @@ export const AgendaView: React.FC = () => {
             <button
               key={m.id}
               type="button"
-              onClick={() => setViewMode(m.id)}
+              onClick={() =>
+                setModuleQuery({ tab: m.id === 'month' ? undefined : m.id })
+              }
               className={`px-3.5 py-1.5 rounded-lg font-medium transition-colors ${
                 viewMode === m.id
                   ? 'bg-teal-600 text-white'
@@ -545,32 +511,12 @@ export const AgendaView: React.FC = () => {
             </button>
           ))}
         </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {professionals.length > 0 && (
-            <select
-              value={professionalFilter}
-              onChange={(e) => {
-                setFilterCustomized(true);
-                setProfessionalFilter(e.target.value);
-              }}
-              className="px-3.5 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200"
-            >
-              {professionals.map((pr) => (
-                <option key={pr.id} value={pr.id}>
-                  {pr.id === activeProfessionalId ? `Mi agenda · ${pr.fullName}` : pr.fullName}
-                </option>
-              ))}
-              <option value="all">Toda la clínica (todos los profesionales)</option>
-            </select>
-          )}
-        </div>
       </div>
 
       {/* Main Content */}
       {viewMode === 'week' ? (
-        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-5 space-y-4">
-          <div className="flex items-center justify-between">
+        <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-4 sm:p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
               Semana del {weekDays[0].dateKey} al {weekDays[6].dateKey}
             </h2>
@@ -649,7 +595,7 @@ export const AgendaView: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {viewMode === 'month' && (
-          <section className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-5 space-y-4">
+          <section className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-3.5 sm:p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
                 {MONTHS_ES[cursorMonth]} {cursorYear}
@@ -682,7 +628,7 @@ export const AgendaView: React.FC = () => {
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
               {calendarDays.map((cell) => {
                 const dayAppts = (appointmentsByDate.get(cell.dateKey) || []).filter(
                   (a) => a.status !== 'cancelled'
@@ -695,7 +641,7 @@ export const AgendaView: React.FC = () => {
                     key={cell.dateKey}
                     type="button"
                     onClick={() => setSelectedDate(cell.dateKey)}
-                    className={`min-h-[64px] p-2 rounded-xl border text-left transition-colors flex flex-col justify-between ${
+                    className={`min-h-[50px] sm:min-h-[64px] p-1 sm:p-2 rounded-xl border text-center sm:text-left transition-colors flex flex-col items-center sm:items-start justify-between ${
                       isSelected
                         ? 'bg-teal-50 dark:bg-teal-950/50 border-teal-600 text-teal-900 dark:text-teal-100'
                         : cell.inMonth
@@ -714,8 +660,12 @@ export const AgendaView: React.FC = () => {
                     </span>
 
                     {dayAppts.length > 0 && (
-                      <span className="text-[10px] font-mono tabular-nums font-semibold text-teal-700 dark:text-teal-300 truncate">
-                        {dayAppts.length} {dayAppts.length === 1 ? 'turno' : 'turnos'}
+                      <span className="text-[10px] font-mono tabular-nums font-semibold text-teal-700 dark:text-teal-300 truncate max-w-full">
+                        {dayAppts.length}
+                        <span className="hidden sm:inline">
+                          {' '}
+                          {dayAppts.length === 1 ? 'turno' : 'turnos'}
+                        </span>
                       </span>
                     )}
                   </button>
@@ -729,16 +679,16 @@ export const AgendaView: React.FC = () => {
         <section
           className={`${
             viewMode === 'month' ? 'lg:col-span-5' : 'lg:col-span-12'
-          } bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-5 space-y-4`}
+          } bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-4 sm:p-5 space-y-4`}
         >
-          <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
               <div className="text-xs text-slate-400">Turnos del día</div>
               <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 capitalize">
                 {formattedSelectedDate}
               </h2>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {viewMode === 'day' && (
                 <input
                   type="date"
@@ -791,7 +741,7 @@ export const AgendaView: React.FC = () => {
               return (
                 <div
                   key={patient.id}
-                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700 text-xs"
+                  className="flex flex-wrap items-center justify-between sm:justify-start gap-2.5 w-full sm:w-auto px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700 text-xs"
                 >
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
                     {patient.fullName}
@@ -804,9 +754,10 @@ export const AgendaView: React.FC = () => {
                       href={bdayUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-emerald-700 dark:text-emerald-300 font-semibold hover:underline"
+                      className={buttonClass({ variant: 'whatsapp', size: 'xs' })}
                     >
-                      Saludar
+                      <WhatsAppIcon className="w-3.5 h-3.5" />
+                      <span>Saludar</span>
                     </a>
                   )}
                 </div>
@@ -818,278 +769,209 @@ export const AgendaView: React.FC = () => {
 
       {/* Modal: Agendar Nuevo Turno */}
       {showNewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Agendar turno · {selectedDate}
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Vincula un paciente, asigna profesional y registra el motivo.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowNewModal(false)}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+        <Modal
+          onClose={() => setShowNewModal(false)}
+          size="lg"
+          title={`Agendar turno · ${selectedDate}`}
+          subtitle="Vinculá un paciente, definí horario y registrá el motivo."
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowNewModal(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                form="agenda-new-form"
+                variant="primary"
+                icon={<CheckCircle2 className="w-4 h-4" />}
               >
-                <X className="w-4 h-4" />
-              </button>
+                Confirmar turno
+              </Button>
+            </>
+          }
+        >
+          <form id="agenda-new-form" onSubmit={handleCreateAppointment} className="space-y-4">
+            {patients.length > 0 && (
+              <div>
+                <label className={labelClass}>Paciente registrado</label>
+                <select
+                  value={patientId}
+                  onChange={(e) => {
+                    setPatientId(e.target.value);
+                    const p = patients.find((item) => item.id === e.target.value);
+                    if (p) setPatientNameInput(p.fullName);
+                  }}
+                  className={selectClass}
+                >
+                  <option value="">-- Seleccionar o escribir abajo --</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName} {p.dni ? `(DNI ${p.dni})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className={labelClass}>Nombre del paciente *</label>
+              <input
+                type="text"
+                required
+                value={patientNameInput}
+                onChange={(e) => setPatientNameInput(e.target.value)}
+                placeholder="Ej: Sofía Martínez"
+                className={inputClass}
+              />
             </div>
 
-            <form onSubmit={handleCreateAppointment} className="space-y-4">
-              {patients.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Paciente registrado
-                  </label>
-                  <select
-                    value={patientId}
-                    onChange={(e) => {
-                      setPatientId(e.target.value);
-                      const p = patients.find((item) => item.id === e.target.value);
-                      if (p) setPatientNameInput(p.fullName);
-                    }}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="">-- Seleccionar o escribir abajo --</option>
-                    {patients.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.fullName} {p.dni ? `(DNI ${p.dni})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Nombre del paciente *
-                </label>
+                <label className={labelClass}>Hora de inicio</label>
                 <input
-                  type="text"
-                  required
-                  value={patientNameInput}
-                  onChange={(e) => setPatientNameInput(e.target.value)}
-                  placeholder="Ej: Sofía Martínez"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className={inputMonoClass}
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Hora de inicio
-                  </label>
-                  <input
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-mono tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Duración (minutos)
-                  </label>
-                  <select
-                    value={durationMin}
-                    onChange={(e) => setDurationMin(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-mono tabular-nums"
-                  >
-                    <option value={15}>15 min</option>
-                    <option value={30}>30 min</option>
-                    <option value={45}>45 min</option>
-                    <option value={60}>60 min</option>
-                    <option value={90}>90 min</option>
-                  </select>
-                </div>
-              </div>
-
-              {professionals.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Profesional que atiende
-                  </label>
-                  <select
-                    value={professionalId}
-                    onChange={(e) => setProfessionalId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="">Sin asignar</option>
-                    {professionals.map((pr) => (
-                      <option key={pr.id} value={pr.id}>
-                        {pr.fullName} {pr.specialty ? `(${pr.specialty})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Tratamiento / Motivo *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={procedure}
-                  onChange={(e) => setProcedure(e.target.value)}
-                  placeholder="Ej: Control endodoncia 3.6, limpieza, toma de impresión"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-                />
-              </div>
-
-              {providers.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Proveedor / Laboratorio (Opcional)
-                  </label>
-                  <select
-                    value={providerId}
-                    onChange={(e) => setProviderId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="">Ninguno</option>
-                    {providers.map((pr) => (
-                      <option key={pr.id} value={pr.id}>
-                        {pr.name} ({pr.category})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Observaciones
-                </label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Notas breves para la atención..."
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                <label className={labelClass}>Duración (minutos)</label>
+                <select
+                  value={durationMin}
+                  onChange={(e) => setDurationMin(Number(e.target.value))}
+                  className={`${selectClass} font-mono tabular-nums`}
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Confirmar turno</span>
-                </button>
+                  <option value={15}>15 min</option>
+                  <option value={30}>30 min</option>
+                  <option value={45}>45 min</option>
+                  <option value={60}>60 min</option>
+                  <option value={90}>90 min</option>
+                </select>
               </div>
-            </form>
-          </div>
-        </div>
+            </div>
+
+            <div>
+              <label className={labelClass}>Tratamiento / Motivo *</label>
+              <input
+                type="text"
+                required
+                value={procedure}
+                onChange={(e) => setProcedure(e.target.value)}
+                placeholder="Ej: Control endodoncia 3.6, limpieza, toma de impresión"
+                className={inputClass}
+              />
+            </div>
+
+            {providers.length > 0 && (
+              <div>
+                <label className={labelClass}>Proveedor / Laboratorio (Opcional)</label>
+                <select
+                  value={providerId}
+                  onChange={(e) => setProviderId(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Ninguno</option>
+                  {providers.map((pr) => (
+                    <option key={pr.id} value={pr.id}>
+                      {pr.name} ({pr.category})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className={labelClass}>Observaciones</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Notas breves para la atención..."
+                className={inputClass}
+              />
+            </div>
+          </form>
+        </Modal>
       )}
 
       {/* Modal: Captar Turno desde Conversación */}
       {showCaptureModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Captar fecha desde conversación
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Escribí o pegá la frase de la consulta; la agenda detectará día, hora y motivo automáticamente.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowCaptureModal(false)}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+        <Modal
+          onClose={() => setShowCaptureModal(false)}
+          size="lg"
+          title="Captar fecha desde conversación"
+          subtitle="Escribí o pegá la frase de la consulta; la agenda detectará día, hora y motivo automáticamente."
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setShowCaptureModal(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                form="agenda-capture-form"
+                variant="primary"
+                icon={<Sparkles className="w-4 h-4" />}
               >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const chosen = patients.find((p) => p.id === capturePatientId);
-                const created = await captureAppointmentFromTranscript(captureText, {
-                  patientId: chosen?.id,
-                  patientName: chosen?.fullName,
-                });
-                if (created) {
-                  setSelectedDate(created.date);
-                  const d = new Date(`${created.date}T12:00:00`);
-                  if (!Number.isNaN(d.getTime())) {
-                    setCursorYear(d.getFullYear());
-                    setCursorMonth(d.getMonth());
-                  }
-                  setShowCaptureModal(false);
+                Detectar y agendar
+              </Button>
+            </>
+          }
+        >
+          <form
+            id="agenda-capture-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const chosen = patients.find((p) => p.id === capturePatientId);
+              const created = await captureAppointmentFromTranscript(captureText, {
+                patientId: chosen?.id,
+                patientName: chosen?.fullName,
+              });
+              if (created) {
+                setSelectedDate(created.date);
+                const d = new Date(`${created.date}T12:00:00`);
+                if (!Number.isNaN(d.getTime())) {
+                  setCursorYear(d.getFullYear());
+                  setCursorMonth(d.getMonth());
                 }
-              }}
-              className="space-y-4"
-            >
-              {patients.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Paciente (opcional, si no está nombrado en el texto)
-                  </label>
-                  <select
-                    value={capturePatientId}
-                    onChange={(e) => setCapturePatientId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="">Detectar del texto o genérico</option>
-                    {patients.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.fullName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
+                setShowCaptureModal(false);
+              }
+            }}
+            className="space-y-4"
+          >
+            {patients.length > 0 && (
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Frase o extracto de la conversación *
+                <label className={labelClass}>
+                  Paciente (opcional, si no está nombrado en el texto)
                 </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={captureText}
-                  onChange={(e) => setCaptureText(e.target.value)}
-                  placeholder="Ej: Paciente Lucía Fernández, nos vemos el próximo martes a las 15:30 para control de endodoncia en pieza 3.6."
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:border-teal-500"
-                />
+                <select
+                  value={capturePatientId}
+                  onChange={(e) => setCapturePatientId(e.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Detectar del texto o genérico</option>
+                  {patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName}
+                    </option>
+                  ))}
+                </select>
               </div>
+            )}
 
-              <div className="flex items-center justify-end gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCaptureModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Detectar y agendar</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <div>
+              <label className={labelClass}>Frase o extracto de la conversación *</label>
+              <textarea
+                rows={3}
+                required
+                value={captureText}
+                onChange={(e) => setCaptureText(e.target.value)}
+                placeholder="Ej: Paciente Lucía Fernández, nos vemos el próximo martes a las 15:30 para control de endodoncia en pieza 3.6."
+                className={inputClass}
+              />
+            </div>
+          </form>
+        </Modal>
       )}
     </div>
   );

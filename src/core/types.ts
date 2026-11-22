@@ -52,6 +52,10 @@ export interface Session {
   consentGiven: boolean;
   modelTierUsed?: ModelTier;
   audioDeleted: boolean;
+  audioFileName?: string;
+  recordedDeviceId?: string;
+  recordedDeviceLabel?: string;
+  audioCloudStatus?: 'local_only' | 'premium_pending' | 'synced';
   clinicalNote?: ClinicalNote;
   error?: string;
   createdAt: number;
@@ -109,6 +113,9 @@ export interface AppSettings {
   transcriptionMode?: TranscriptionMode; // 'dental' uses dental prompt + glossary; 'general' avoids dental bias
   theme: 'light' | 'dark' | 'system';
   currency?: CurrencyCode;
+  showCurrencyCode?: boolean;
+  audioCloudTier?: 'free' | 'premium_audio';
+  audioCloudAutoSync?: boolean;
   updatedAt: number;
 }
 
@@ -128,7 +135,6 @@ export interface ClinicProfessional {
   phone?: string;
   role: ClinicRole;
   agendaColor: string;
-  pinCode?: string;
   canViewFinance: boolean;
   active: boolean;
   createdAt: number;
@@ -307,6 +313,8 @@ export interface OdontogramRecord {
   teeth: Record<string, ToothRecord>;
   notes?: string;
   createdBy?: string;
+  authorUserId?: string;
+  authorWorkspaceId?: string;
   createdAt: number;
   updatedAt: number;
   deletedAt?: number | null;
@@ -335,12 +343,14 @@ export interface PeriodontogramRecord {
   teeth: Record<string, PeriodontogramToothData>;
   notes?: string;
   createdBy?: string;
+  authorUserId?: string;
+  authorWorkspaceId?: string;
   createdAt: number;
   updatedAt: number;
   deletedAt?: number | null;
 }
 
-/* ---- Chronological Clinical Evolutions (with PIN Signature) ---- */
+/* ---- Chronological Clinical Evolutions ---- */
 
 export type EvolutionHighlightColor = 'default' | 'teal' | 'amber' | 'rose' | 'blue';
 
@@ -355,8 +365,8 @@ export interface ClinicalEvolutionEntry {
   highlightColor: EvolutionHighlightColor;
   professionalId?: string;
   professionalName?: string;
-  signedWithPin: boolean;
-  signedAt?: number;
+  authorUserId?: string;
+  authorWorkspaceId?: string;
   sourceSessionId?: string;
   sourceTreatmentPlanId?: string;
   createdAt: number;
@@ -369,7 +379,7 @@ export type ClinicalEvolutionDraftInput = Omit<
   'id' | 'workspaceId' | 'createdAt' | 'updatedAt' | 'deletedAt'
 >;
 
-/* ---- Patient File Attachments (X-rays, Intraoral Photos, PDFs - Local IndexedDB) ---- */
+/* ---- Patient File Attachments (X-rays, Intraoral Photos, PDFs - Supabase Cloud + Storage) ---- */
 
 export type PatientFileCategory = 'radiografia' | 'foto_clinica' | 'documento' | 'consentimiento';
 
@@ -382,9 +392,53 @@ export interface PatientFileAttachment {
   mimeType: string;
   sizeBytes: number;
   dataUrl: string;
+  storagePath?: string;
   notes?: string;
+  uploadedBy?: string;
+  authorUserId?: string;
+  authorWorkspaceId?: string;
   capturedAt: string; // YYYY-MM-DD
   createdAt: number;
+}
+
+/* ---- Colleague Patient Sharing (Single-use WhatsApp Invite + Permanent Linked Clinical Record) ---- */
+
+export type PatientShareStatus = 'pending' | 'accepted' | 'revoked';
+
+export interface PatientShareLink {
+  id: string;
+  ownerWorkspaceId: string;
+  ownerUserId?: string;
+  ownerName: string;
+  ownerSpecialty?: string;
+  ownerLicense?: string;
+  patientId: string;
+  patientNameSnapshot: string;
+  inviteToken: string;
+  referralNote?: string;
+  status: PatientShareStatus;
+  recipientWorkspaceId?: string;
+  recipientUserId?: string;
+  recipientName?: string;
+  recipientSpecialty?: string;
+  recipientLicense?: string;
+  acceptedAt?: number;
+  revokedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PatientSharePreview {
+  id: string;
+  ownerName: string;
+  ownerSpecialty?: string;
+  ownerLicense?: string;
+  patientId: string;
+  patientNameSnapshot: string;
+  referralNote?: string;
+  status: PatientShareStatus;
+  createdAt: number;
+  isOwnShare: boolean;
 }
 
 /* ---- Treatment Plans / Budgets ---- */
@@ -533,6 +587,7 @@ export type ActivityEntityType =
   | 'lab_order'
   | 'professional'
   | 'file'
+  | 'share'
   | 'system';
 
 export type ActivityActionType =
@@ -554,3 +609,50 @@ export interface ActivityLogEntry {
   details?: string;
   createdAt: number;
 }
+
+/* ---- Subscriptions, 7-Day Free Trial & Bank Transfer Requests ---- */
+
+export type SubscriptionPlanTier = 'trial' | 'base' | 'extra' | 'mega';
+
+export type PaidSubscriptionPlanTier = 'base' | 'extra' | 'mega';
+
+export type SubscriptionBillingCycle = 'monthly' | 'quarterly' | 'annual';
+
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'expired';
+
+export type SubscriptionAlertLevel = 'ok' | 'warning' | 'critical' | 'expired';
+
+export interface WorkspaceSubscription {
+  workspaceId: string;
+  planTier: SubscriptionPlanTier;
+  billingCycle: SubscriptionBillingCycle;
+  status: SubscriptionStatus;
+  trialStartsAt: number;
+  trialEndsAt: number;
+  currentPeriodStart?: number;
+  currentPeriodEnd?: number;
+  lastPaymentMethod: 'bank_transfer';
+  pendingTransferId?: string;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type TransferRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface SubscriptionTransferRequest {
+  id: string;
+  workspaceId: string;
+  userId?: string;
+  requestedTier: PaidSubscriptionPlanTier;
+  billingCycle: SubscriptionBillingCycle;
+  amountUsd: number;
+  payerName: string;
+  bankName: string;
+  transferReference: string;
+  notes?: string;
+  status: TransferRequestStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
