@@ -7,7 +7,6 @@ import {
   onAuthStateChanged,
   signInWithPopup,
 } from 'firebase/auth';
-import firebaseConfig from '../../../firebase-applet-config.json';
 import { Appointment } from '../types';
 
 /**
@@ -21,13 +20,60 @@ export const GOOGLE_CALENDAR_SCOPES = [
 
 const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 
+interface FirebaseWebConfig {
+  apiKey?: string;
+  authDomain?: string;
+  projectId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+}
+
+const localAppletConfigModules = import.meta.glob<{ default?: FirebaseWebConfig }>(
+  '/firebase-applet-config.json',
+  { eager: true }
+);
+
+export function resolveFirebaseWebConfig(
+  env: Record<string, string | undefined> = import.meta.env as Record<string, string | undefined>,
+  fallbackFileConfig?: FirebaseWebConfig | null
+): FirebaseWebConfig | null {
+  const apiKey = env.VITE_FIREBASE_API_KEY?.trim();
+  const projectId = env.VITE_FIREBASE_PROJECT_ID?.trim();
+  const authDomain = env.VITE_FIREBASE_AUTH_DOMAIN?.trim();
+
+  if (apiKey && projectId && authDomain) {
+    return {
+      apiKey,
+      authDomain,
+      projectId,
+      storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET?.trim() || undefined,
+      messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID?.trim() || undefined,
+      appId: env.VITE_FIREBASE_APP_ID?.trim() || undefined,
+    };
+  }
+
+  const localMod = localAppletConfigModules['/firebase-applet-config.json'];
+  const fileCfg =
+    fallbackFileConfig ??
+    localMod?.default ??
+    (localMod as unknown as FirebaseWebConfig | undefined);
+
+  if (fileCfg?.apiKey && fileCfg?.projectId && fileCfg?.authDomain) {
+    return fileCfg;
+  }
+
+  return null;
+}
+
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
 let authInstance: Auth | null = null;
 
 function getFirebaseAppInstance(): FirebaseApp | null {
   try {
-    if (!firebaseConfig?.apiKey || !firebaseConfig?.projectId) {
+    const firebaseConfig = resolveFirebaseWebConfig();
+    if (!firebaseConfig?.apiKey || !firebaseConfig?.projectId || !firebaseConfig?.authDomain) {
       return null;
     }
     return getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
@@ -45,6 +91,7 @@ function getFirebaseAuthInstance(): Auth | null {
 }
 
 export function isGoogleCalendarIntegrationAvailable(): boolean {
+  const firebaseConfig = resolveFirebaseWebConfig();
   return Boolean(
     typeof window !== 'undefined' &&
       firebaseConfig?.apiKey &&

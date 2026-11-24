@@ -17,114 +17,200 @@ import {
   UserCheck,
   Wallet,
 } from 'lucide-react';
-import heroClinicImg from '../../assets/images/hero_dental_workspace_1795287115633.jpg';
 
 const WAVE_BARS = [24, 52, 78, 44, 88, 65, 34, 72, 92, 54, 42, 82, 60, 36, 74, 48];
 
+const DICTATION_WORDS = [
+  'Paciente',
+  'Lucía',
+  'Méndez.',
+  'Pieza',
+  '36',
+  'con',
+  'pulpitis',
+  'irreversible.',
+  'Aislamiento',
+  'absoluto,',
+  'conductometría',
+  'en',
+  'tres',
+  'conductos',
+  'e',
+  'hidróxido',
+  'de',
+  'calcio.',
+  'Agendar',
+  'control',
+  'el',
+  'próximo',
+  'jueves',
+  'a',
+  'las',
+  '10:30.',
+];
+
 /**
- * Multi-device hero visual inspired by modern dental SaaS showcases:
- * Desktop app frame (Sidebar + Dictado/Agenda) paired with overlapping Mobile recording frame
- * and subtle clinic workspace backdrop.
+ * Crisp anatomical-style SVG tooth icon used in the interactive FDI dental chart
+ * and the walkthrough preview so dental pieces read clearly instead of plain boxes.
+ */
+const ToothSilhouette: React.FC<{
+  fdi: string;
+  active?: boolean;
+  tone?: 'teal' | 'amber' | 'sky' | 'neutral';
+}> = ({ fdi, active = false, tone = 'neutral' }) => {
+  const isAnterior = ['11', '12', '21', '22', '31', '32', '41', '42'].includes(fdi);
+  const strokeClass = active
+    ? tone === 'amber'
+      ? 'text-amber-600 dark:text-amber-300'
+      : tone === 'sky'
+      ? 'text-sky-600 dark:text-sky-300'
+      : 'text-white dark:text-white'
+    : 'text-slate-400 dark:text-slate-500';
+
+  if (isAnterior) {
+    return (
+      <svg className={`w-6 h-7 mx-auto ${strokeClass}`} viewBox="0 0 28 32" fill="none" aria-hidden="true">
+        <path
+          d="M8 6.5C8 4.6 10.6 3.5 14 3.5C17.4 3.5 20 4.6 20 6.5C20 11 18.8 14.2 17.7 17.5C16.7 20.6 15.8 25.5 14 28.5C12.2 25.5 11.3 20.6 10.3 17.5C9.2 14.2 8 11 8 6.5Z"
+          fill="currentColor"
+          fillOpacity={active ? '0.24' : '0.08'}
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className={`w-7 h-7 mx-auto ${strokeClass}`} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path
+        d="M6.5 9.5C6.5 6.2 9.4 4.5 12.6 5.2C14.1 5.5 15 6 16 6C17 6 17.9 5.5 19.4 5.2C22.6 4.5 25.5 6.2 25.5 9.5C25.5 13.8 23.6 17 22.3 22.6C21.7 25.5 20.4 27.2 19 27.2C17.6 27.2 17 24.4 16 22.2C15 24.4 14.4 27.2 13 27.2C11.6 27.2 10.3 25.5 9.7 22.6C8.4 17 6.5 13.8 6.5 9.5Z"
+        fill="currentColor"
+        fillOpacity={active ? '0.24' : '0.08'}
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11.5 10.2C13 11.1 19 11.1 20.5 10.2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        opacity="0.7"
+      />
+    </svg>
+  );
+};
+
+/**
+ * Clean, frameless multi-device product showcase for the Hero section:
+ * Removes fake browser URL bars and tiny pixelated thumbnails while animating
+ * live voice-to-agenda synchronization across desktop and mobile.
  */
 export const HeroMultiDeviceShowcase: React.FC = () => {
   const [heroBeat, setHeroBeat] = useState(0);
 
   useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
     const id = window.setInterval(() => {
-      setHeroBeat((b) => (b + 1) % 6);
-    }, 900);
+      setHeroBeat((b) => (b + 1) % 8);
+    }, 850);
     return () => window.clearInterval(id);
   }, []);
 
+  const isHighlightedSync = heroBeat >= 4;
+
   return (
-    <div className="relative mx-auto w-full max-w-[600px] pb-8 sm:pb-10">
-      {/* Soft clinical ambient frame */}
+    <div className="relative mx-auto w-full max-w-[600px] pb-10 sm:pb-12">
+      {/* Subtle architectural canvas framing */}
       <div
         aria-hidden="true"
-        className="absolute -inset-4 rounded-[36px] bg-gradient-to-br from-teal-500/12 via-cyan-500/8 to-transparent dark:from-teal-500/15 dark:via-cyan-500/10 pointer-events-none"
+        className="absolute -inset-3 rounded-[32px] bg-gradient-to-br from-teal-500/12 via-cyan-500/6 to-slate-200/20 dark:from-teal-500/15 dark:via-cyan-500/10 dark:to-transparent pointer-events-none"
       />
 
-      {/* Desktop App Browser Mockup */}
-      <div className="relative rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xl overflow-hidden">
-        {/* Browser Chrome */}
-        <div className="h-9 px-3.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+      {/* Native Clinical App Window (No Browser Chrome, No URL Bar) */}
+      <div className="relative rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xl overflow-hidden">
+        {/* Clean Application Header */}
+        <div className="px-4 py-3 bg-[#F6FAFA] dark:bg-slate-950 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-6 h-6 rounded-lg bg-teal-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+              O
+            </span>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                OdontoHelper · Consultorio Pocitos
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                Dra. Sofía Méndez · Agenda y dictado clínico
+              </div>
+            </div>
           </div>
-          <div className="px-3 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-[10px] font-mono text-slate-500 dark:text-slate-400">
-            app.odontohelper.uy/agenda
-          </div>
-          <div className="text-[10px] font-semibold text-teal-700 dark:text-teal-300">
-            Consultorio
+
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-semibold text-teal-700 dark:text-teal-300 shrink-0 tabular-nums">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Jueves 26 de noviembre</span>
           </div>
         </div>
 
-        {/* App Body: Sidebar + Main Calendar/Patient Preview */}
-        <div className="grid grid-cols-12 min-h-[290px] sm:min-h-[320px]">
-          {/* Mini OdontoHelper Sidebar */}
-          <div className="col-span-4 sm:col-span-3 bg-[#F4F8F8] dark:bg-slate-950/70 border-r border-slate-200/80 dark:border-slate-800 p-2.5 space-y-1.5">
-            <div className="flex items-center gap-1.5 px-1.5 py-1 mb-2">
-              <span className="w-5 h-5 rounded-md bg-teal-600 text-white flex items-center justify-center text-[10px] font-bold">
-                O
-              </span>
-              <span className="text-[11px] font-bold text-slate-900 dark:text-white truncate">
-                OdontoHelper
-              </span>
+        {/* App Body: Crisp Navigation + Day Schedule */}
+        <div className="grid grid-cols-12 min-h-[300px] sm:min-h-[330px]">
+          {/* Clean App Sidebar */}
+          <div className="col-span-4 sm:col-span-3 bg-[#F4F8F8] dark:bg-slate-950/60 border-r border-slate-200/80 dark:border-slate-800 p-3 flex flex-col justify-between">
+            <div className="space-y-1">
+              {[
+                { label: 'Dictar consulta', active: false, icon: Mic },
+                { label: 'Pacientes', active: false, icon: UserCheck },
+                { label: 'Agenda', active: true, icon: Calendar },
+                { label: 'Odontograma', active: false, icon: Stethoscope },
+                { label: 'Caja ($ UYU)', active: false, icon: Wallet },
+                { label: 'Laboratorio', active: false, icon: FlaskConical },
+              ].map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div
+                    key={item.label}
+                    className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-[11px] font-medium transition-colors ${
+                      item.active
+                        ? 'bg-teal-600 text-white font-semibold shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                );
+              })}
             </div>
 
-            {[
-              { label: 'Dictar historia', active: false, icon: Mic },
-              { label: 'Pacientes', active: false, icon: UserCheck },
-              { label: 'Agenda', active: true, icon: Calendar },
-              { label: 'Presupuestos', active: false, icon: Stethoscope },
-              { label: 'Caja ($ UYU)', active: false, icon: Wallet },
-              { label: 'Laboratorio', active: false, icon: FlaskConical },
-            ].map((item) => {
-              const Icon = item.icon;
-              return (
-                <div
-                  key={item.label}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium ${
-                    item.active
-                      ? 'bg-teal-600 text-white font-semibold'
-                      : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  <Icon className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </div>
-              );
-            })}
-
-            {/* Subtle clinic atmosphere thumbnail */}
-            <div className="pt-3 hidden sm:block">
-              <div className="aspect-[16/10] rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800">
-                <img
-                  src={heroClinicImg}
-                  alt="Consultorio dental moderno"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
+            <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-1 text-[10px] text-slate-500 dark:text-slate-400">
+              <div className="font-semibold text-slate-700 dark:text-slate-200">
+                Sincronización activa
               </div>
+              <div>Google · Apple · WhatsApp</div>
             </div>
           </div>
 
-          {/* Main Agenda & Dictation Sync Canvas */}
-          <div className="col-span-8 sm:col-span-9 p-3.5 sm:p-4 space-y-3 bg-white dark:bg-slate-900">
-            <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+          {/* Main Agenda List */}
+          <div className="col-span-8 sm:col-span-9 p-4 sm:p-5 space-y-3 bg-white dark:bg-slate-900">
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <div className="text-xs font-bold text-slate-900 dark:text-white">
-                  Agenda del día · Jueves 26
+                <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                  Turnos del día
                 </div>
-                <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Consultorio Central · Dra. Sofía Méndez
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Jueves 26 · Recordatorios automáticos listos
                 </div>
               </div>
-              <div className="text-[10px] font-semibold text-teal-700 dark:text-teal-300 tabular-nums">
-                4 turnos hoy
-              </div>
+              <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300 tabular-nums">
+                4 pacientes
+              </span>
             </div>
 
             <div className="space-y-2 tabular-nums">
@@ -134,53 +220,59 @@ export const HeroMultiDeviceShowcase: React.FC = () => {
                   patient: 'Martín Silva',
                   task: 'Limpieza y control semestral',
                   status: 'Atendido',
-                  tone: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200/70 dark:border-emerald-800/50',
+                  tone: 'text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200/80 dark:border-emerald-800/60',
                 },
                 {
                   time: '09:45',
                   patient: 'Carolina Vega',
                   task: 'Resina estética pieza 14',
                   status: 'En atención',
-                  tone: 'text-sky-700 dark:text-sky-300 bg-sky-50/80 dark:bg-sky-950/40 border-sky-200/70 dark:border-sky-800/50',
+                  tone: 'text-sky-700 dark:text-sky-300 bg-sky-50/80 dark:bg-sky-950/40 border-sky-200/80 dark:border-sky-800/60',
                 },
                 {
                   time: '10:30',
                   patient: 'Lucía Méndez',
-                  task: 'Control Endodoncia pieza 36 (desde voz)',
-                  status: 'Confirmado',
+                  task: 'Control de endodoncia pieza 36 (captado por voz)',
+                  status: isHighlightedSync ? 'Agendado ahora' : 'Confirmado',
                   highlight: true,
-                  tone: 'text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border-teal-400/70 dark:border-teal-700',
+                  tone: isHighlightedSync
+                    ? 'text-white bg-teal-600 border-teal-700'
+                    : 'text-teal-800 dark:text-teal-200 bg-teal-50 dark:bg-teal-950/60 border-teal-300 dark:border-teal-700',
                 },
                 {
                   time: '11:30',
                   patient: 'Federico Acosta',
                   task: 'Prueba de corona sobre implante 26',
                   status: 'Pendiente',
-                  tone: 'text-amber-700 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/70 dark:border-amber-800/50',
+                  tone: 'text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-800/60',
                 },
               ].map((slot) => (
                 <div
                   key={slot.time}
-                  className={`flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border text-[11px] transition-all ${
+                  className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl border text-xs transition-all duration-300 ${
                     slot.highlight
-                      ? 'border-teal-500/70 bg-teal-50/70 dark:bg-teal-950/40 shadow-xs'
-                      : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30'
+                      ? isHighlightedSync
+                        ? 'border-teal-500 bg-teal-50/90 dark:bg-teal-950/50 shadow-sm'
+                        : 'border-teal-400/70 bg-teal-50/50 dark:bg-teal-950/30'
+                      : 'border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/30'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="font-mono font-bold text-slate-700 dark:text-slate-200 shrink-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-100 shrink-0">
                       {slot.time}
                     </span>
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 dark:text-white truncate">
                         {slot.patient}
                       </div>
-                      <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                         {slot.task}
                       </div>
                     </div>
                   </div>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border shrink-0 ${slot.tone}`}>
+                  <span
+                    className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg border shrink-0 transition-colors ${slot.tone}`}
+                  >
                     {slot.status}
                   </span>
                 </div>
@@ -190,25 +282,25 @@ export const HeroMultiDeviceShowcase: React.FC = () => {
         </div>
       </div>
 
-      {/* Overlapping Mobile Phone Frame: Dictado en silla */}
-      <div className="hidden sm:block absolute -bottom-3 -right-3 w-[210px] rounded-[24px] bg-slate-900 p-1.5 shadow-2xl border border-slate-700">
-        <div className="rounded-[18px] bg-white dark:bg-slate-950 p-3 space-y-2.5">
+      {/* Floating Mobile Dictation Card (Synced with Desktop Schedule) */}
+      <div className="hidden sm:block absolute -bottom-2 -right-3 w-[230px] rounded-[24px] bg-slate-900 p-1.5 shadow-2xl border border-slate-700">
+        <div className="rounded-[18px] bg-white dark:bg-slate-950 p-3.5 space-y-2.5">
           <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-            <span className="flex items-center gap-1 text-teal-700 dark:text-teal-300">
+            <span className="flex items-center gap-1.5 text-teal-700 dark:text-teal-300">
               <Mic className="w-3 h-3" />
-              Dictado móvil
+              Dictado desde el celular
             </span>
             <span className="font-mono tabular-nums">00:{String(36 + heroBeat).padStart(2, '0')}</span>
           </div>
 
-          <div className="p-2 rounded-xl bg-teal-50/90 dark:bg-teal-950/50 border border-teal-200/80 dark:border-teal-800/60 space-y-1.5">
-            <div className="text-[10px] font-bold text-slate-900 dark:text-white">
+          <div className="p-2.5 rounded-xl bg-teal-50/90 dark:bg-teal-950/50 border border-teal-200/80 dark:border-teal-800/60 space-y-2">
+            <div className="text-[11px] font-bold text-slate-900 dark:text-white">
               Lucía Méndez · Pieza 36
             </div>
             <div className="flex items-end gap-0.5 h-6">
               {WAVE_BARS.slice(0, 12).map((h, i) => {
                 const mod = ((i + heroBeat) % 3) * 14;
-                const height = Math.max(20, Math.min(100, h - mod));
+                const height = Math.max(22, Math.min(100, h - mod));
                 return (
                   <span
                     key={i}
@@ -219,14 +311,14 @@ export const HeroMultiDeviceShowcase: React.FC = () => {
               })}
             </div>
             <p className="text-[10px] leading-snug text-slate-700 dark:text-slate-200">
-              “...control endodoncia 36 el jueves a las 10:30.”
+              “...control de endodoncia 36 el jueves a las 10:30.”
             </p>
           </div>
 
           <div className="flex items-center justify-between gap-1.5 text-[10px] font-semibold">
             <span className="text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
               <Check className="w-3 h-3" />
-              Turno detectado
+              {isHighlightedSync ? 'Turno agregado' : 'Cita detectada'}
             </span>
             <span className="text-teal-700 dark:text-teal-300 font-mono tabular-nums">
               Jue 10:30
@@ -249,32 +341,34 @@ const WALKTHROUGH_STEPS: WalkthroughStep[] = [
   {
     id: 'record',
     stepNum: 1,
-    title: '1. Grabás en sillón',
-    subtitle: 'Dictado continuo desde PC o celular',
+    title: '1. Grabás al terminar',
+    subtitle: 'Dictado fluido desde PC o celular',
   },
   {
     id: 'transcribe',
     stepNum: 2,
-    title: '2. Se pasa a texto',
-    subtitle: 'Nota clínica + detección de próximo turno',
+    title: '2. Se ordena la ficha',
+    subtitle: 'Nota clínica + próximo control detectado',
   },
   {
     id: 'calendar',
     stepNum: 3,
-    title: '3. Se añade al calendario',
-    subtitle: '1 clic en Agenda + aviso WhatsApp',
+    title: '3. Pasa a tu Agenda',
+    subtitle: 'Turno guardado + aviso por WhatsApp',
   },
   {
     id: 'patient',
     stepNum: 4,
-    title: '4. Ficha y odontograma al día',
-    subtitle: 'Evolución guardada y pieza 36 actualizada',
+    title: '4. Odontograma actualizado',
+    subtitle: 'Pieza 36 marcada e historial listo',
   },
 ];
 
+const TICKS_PER_STEP = 8;
+
 /**
- * Looping animated "GIF-like" interactive walkthrough showing:
- * Recording -> Local Whisper transcription -> Adding follow-up appointment to Agenda calendar -> Patient card sync.
+ * High-craft interactive animated walkthrough (smooth GIF-style loop):
+ * Live word-by-word voice capture -> structured clinical card -> schedule insertion -> FDI tooth chart.
  */
 export const VoiceToCalendarWalkthrough: React.FC = () => {
   const [stepIndex, setStepIndex] = useState(0);
@@ -294,24 +388,30 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
     const timer = window.setInterval(() => {
       setTick((t) => {
         const next = t + 1;
-        if (next % 6 === 0) {
+        if (next % TICKS_PER_STEP === 0) {
           setStepIndex((s) => (s + 1) % WALKTHROUGH_STEPS.length);
         }
         return next;
       });
-    }, 650);
+    }, 520);
 
     return () => window.clearInterval(timer);
   }, [isPlaying]);
 
   const handleSelectStep = (idx: number) => {
     setStepIndex(idx);
-    setTick(idx * 6);
+    setTick(idx * TICKS_PER_STEP);
   };
 
-  const recordingSeconds = 36 + (tick % 6);
-  const pointerOnAddButton = stepIndex === 1 && tick % 6 >= 3;
+  const stepSubTick = tick % TICKS_PER_STEP;
+  const recordingSeconds = 36 + stepSubTick;
+  const revealedWordsCount =
+    stepIndex === 0
+      ? Math.min(DICTATION_WORDS.length, 8 + stepSubTick * 3)
+      : DICTATION_WORDS.length;
+  const pointerOnAddButton = stepIndex === 1 && stepSubTick >= 4;
   const appointmentInserted = stepIndex >= 2;
+  const stepProgressPct = ((stepSubTick + 1) / TICKS_PER_STEP) * 100;
 
   return (
     <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-lg overflow-hidden">
@@ -319,7 +419,7 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
       <div className="px-4 sm:px-6 py-3.5 bg-[#F2F7F7] dark:bg-slate-950/70 border-b border-slate-200/80 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-bold text-slate-900 dark:text-white">
-            Secuencia del sistema: De grabación de voz a calendario y ficha
+            Recorrido en vivo: Del micrófono a la historia clínica y la Agenda
           </span>
         </div>
 
@@ -346,7 +446,7 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
         </div>
       </div>
 
-      {/* Clickable Timeline Tabs (4 frames of the animated GIF sequence) */}
+      {/* Clickable Timeline Tabs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
         {WALKTHROUGH_STEPS.map((st, idx) => {
           const active = stepIndex === idx;
@@ -356,10 +456,10 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
               key={st.id}
               type="button"
               onClick={() => handleSelectStep(idx)}
-              className={`px-4 py-3 text-left transition-colors border-b-2 cursor-pointer ${
+              className={`relative px-4 py-3 text-left transition-colors cursor-pointer ${
                 active
-                  ? 'border-teal-600 bg-white dark:bg-slate-900'
-                  : 'border-transparent hover:bg-white/70 dark:hover:bg-slate-900/50'
+                  ? 'bg-white dark:bg-slate-900'
+                  : 'hover:bg-white/70 dark:hover:bg-slate-900/50'
               }`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -377,6 +477,17 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
               <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                 {st.subtitle}
               </div>
+              {active && (
+                <div
+                  aria-hidden="true"
+                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-teal-100 dark:bg-teal-950 overflow-hidden"
+                >
+                  <div
+                    className="h-full bg-teal-600 transition-transform duration-500 ease-out origin-left"
+                    style={{ transform: `scaleX(${stepProgressPct / 100})` }}
+                  />
+                </div>
+              )}
             </button>
           );
         })}
@@ -389,10 +500,10 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
             <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-5 shadow-xs">
               <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <span className="flex items-center gap-2 font-medium text-teal-700 dark:text-teal-300">
-                  <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-                  Grabación continua · Guardado local hace instantes
+                  <Mic className="w-3.5 h-3.5" />
+                  Grabación continua · Resguardada en tu dispositivo
                 </span>
-                <span className="font-mono text-[11px] tabular-nums">/dictar/grabando</span>
+                <span className="font-mono text-[11px] text-slate-500">Consultorio Centro</span>
               </div>
 
               <div className="text-center space-y-2 py-2">
@@ -424,24 +535,37 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-teal-600 text-white">
                   <Square className="w-3.5 h-3.5 fill-current" />
-                  Finalizar y transcribir
+                  Finalizar y pasar a texto
                 </span>
               </div>
             </div>
 
             <div className="lg:col-span-5 space-y-3">
               <div className="text-xs font-semibold text-teal-700 dark:text-teal-300">
-                Lo que dicta el odontólogo al terminar la consulta:
+                Lo que decís en voz alta al terminar la consulta:
               </div>
-              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm leading-relaxed text-slate-700 dark:text-slate-200 shadow-xs">
-                “Paciente Lucía Méndez. Pieza 36 con pulpitis irreversible. Realizamos aislamiento absoluto, apertura y conductometría electrónica en tres conductos con hipoclorito al 2,5%. Dejamos hidróxido de calcio y provisorio.{' '}
-                <strong className="text-teal-700 dark:text-teal-300 font-semibold">
-                  Agendar control y obturación el próximo jueves a las 10:30 con la Dra. Sofía.
-                </strong>
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm leading-relaxed text-slate-700 dark:text-slate-200 shadow-xs min-h-[136px]">
+                “
+                {DICTATION_WORDS.slice(0, revealedWordsCount).map((w, idx) => {
+                  const isScheduleClause = idx >= 18;
+                  return (
+                    <React.Fragment key={idx}>
+                      <span
+                        className={
+                          isScheduleClause
+                            ? 'text-teal-700 dark:text-teal-300 font-semibold'
+                            : undefined
+                        }
+                      >
+                        {w}
+                      </span>{' '}
+                    </React.Fragment>
+                  );
+                })}
                 ”
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                La grabación se va guardando mientras hablás para que no se pierda nada aunque se corte internet.
+                El audio se guarda automáticamente mientras hablás para que no pierdas ningún dato aunque se corte internet.
               </p>
             </div>
           </div>
@@ -452,25 +576,25 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
             <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 space-y-4 shadow-xs">
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="text-xs font-bold text-slate-900 dark:text-white">
-                  Historia clínica ordenada automáticamente
+                  Evolución clínica ordenada al instante
                 </div>
                 <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300">
-                  Procesado en tu equipo
+                  Transcripción privada
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-                  <div className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
-                    Pieza y hallazgos
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="font-semibold text-slate-500 dark:text-slate-400 text-[11px]">
+                    Pieza y diagnóstico
                   </div>
                   <div className="text-slate-900 dark:text-white font-semibold mt-1">
                     Pieza 36 · Pulpitis irreversible sintomática
                   </div>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-                  <div className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
-                    Procedimiento
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="font-semibold text-slate-500 dark:text-slate-400 text-[11px]">
+                    Procedimiento realizado
                   </div>
                   <div className="text-slate-900 dark:text-white mt-1">
                     Conductometría 3 conductos, NaOCl 2,5%, Ca(OH)₂ y provisorio.
@@ -478,12 +602,12 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-xs">
-                <div className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">
-                  Indicaciones para el paciente
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-xs">
+                <div className="font-semibold text-slate-500 dark:text-slate-400 text-[11px]">
+                  Indicaciones post-consulta
                 </div>
                 <div className="text-slate-700 dark:text-slate-200 mt-1">
-                  Ibuprofeno 600 mg c/ 8 h si hay molestia. Evitar masticar del lado izquierdo.
+                  Ibuprofeno 600 mg cada 8 horas si presenta molestia. Evitar masticar del lado izquierdo hasta la obturación definitiva.
                 </div>
               </div>
             </div>
@@ -492,29 +616,29 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-xs font-bold text-teal-800 dark:text-teal-200">
                   <Sparkles className="w-4 h-4 text-teal-600" />
-                  <span>Cita detectada automáticamente en el audio</span>
+                  <span>Próximo turno detectado en tu dictado</span>
                 </div>
 
-                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-teal-200/80 dark:border-teal-800 space-y-1.5 text-xs tabular-nums">
+                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-teal-200/80 dark:border-teal-800 space-y-2 text-xs tabular-nums">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Paciente</span>
                     <span className="font-bold text-slate-900 dark:text-white">Lucía Méndez</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Fecha y hora</span>
+                    <span className="text-slate-500">Día y hora</span>
                     <span className="font-bold font-mono text-teal-700 dark:text-teal-300">
-                      Jueves 26 · 10:30
+                      Jueves 26 · 10:30 h
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Motivo</span>
                     <span className="font-medium text-slate-800 dark:text-slate-200">
-                      Control Endodoncia pza. 36
+                      Control de endodoncia pza. 36
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Profesional</span>
-                    <span className="font-medium text-slate-800 dark:text-slate-200">Dra. Sofía</span>
+                    <span className="font-medium text-slate-800 dark:text-slate-200">Dra. Sofía Méndez</span>
                   </div>
                 </div>
               </div>
@@ -529,7 +653,7 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                 }`}
               >
                 <CalendarPlus className="w-4 h-4" />
-                <span>Añadir a la Agenda</span>
+                <span>Confirmar turno en Agenda</span>
               </button>
             </div>
           </div>
@@ -544,11 +668,11 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                     Agenda semanal · Noviembre 2026
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Vista de consultorio · Horario 09:00 a 12:30
+                    Horarios de sillón · 09:00 a 12:30
                   </div>
                 </div>
                 <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300">
-                  Jueves 26 seleccionado
+                  Jueves 26 confirmado
                 </span>
               </div>
 
@@ -588,7 +712,7 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                     }`}
                   >
                     <div className="truncate">Lucía Méndez</div>
-                    <div className="text-[10px] opacity-90 truncate">Control Endo 36</div>
+                    <div className="text-[10px] opacity-90 truncate">Control endodoncia 36</div>
                   </div>
                   <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700 truncate text-slate-700 dark:text-slate-200">
                     M. Pérez · Implante
@@ -613,10 +737,10 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
             <div className="lg:col-span-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-3 shadow-xs">
               <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Agregado a Agenda sin reescribir</span>
+                <span>Turno agendado sin tipear de nuevo</span>
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                El turno queda vinculado al paciente y listo para enviar confirmación por WhatsApp o abrir en Google Calendar (.ics).
+                Queda vinculado al historial del paciente y sincronizado con Google Calendar o Apple Calendar para avisarle por WhatsApp.
               </p>
               <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 text-[11px] text-emerald-900 dark:text-emerald-200">
                 “Hola Lucía, te recordamos tu control de endodoncia el jueves 26 a las 10:30 h en Consultorio Centro.”
@@ -634,11 +758,11 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                     Lucía Méndez · Ficha clínica
                   </div>
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Odontograma FDI actualizado · Próxima cita Jue 26 · 10:30
+                    Odontograma FDI al día · Próximo turno Jue 26 · 10:30 h
                   </div>
                 </div>
                 <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300">
-                  Evolución sincronizada
+                  Evolución guardada
                 </span>
               </div>
 
@@ -650,42 +774,43 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
                       key={fdi}
                       className={`p-2.5 rounded-xl border ${
                         isTarget
-                          ? 'bg-teal-600 text-white border-teal-700'
+                          ? 'bg-teal-600 text-white border-teal-700 shadow-xs'
                           : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200'
                       }`}
                     >
-                      <div className="font-mono text-xs font-bold">{fdi}</div>
-                      <div className="text-[10px] mt-0.5 opacity-90">
-                        {isTarget ? 'Endo' : 'Sana'}
+                      <ToothSilhouette fdi={fdi} active={isTarget} />
+                      <div className="font-mono text-xs font-bold mt-1">{fdi}</div>
+                      <div className="text-[10px] opacity-90">
+                        {isTarget ? 'Endodoncia' : 'Sana'}
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-xs space-y-1">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 text-xs space-y-1">
                 <div className="font-semibold text-slate-900 dark:text-white">
-                  Última evolución · Hoy · Dictado por voz
+                  Última evolución · Hoy · Dictada por voz
                 </div>
                 <p className="text-slate-600 dark:text-slate-300">
-                  Pieza 36: conductometría de 3 conductos, irrigación NaOCl 2,5%, medicación intraconducto Ca(OH)₂. Control agendado Jue 26 10:30.
+                  Pieza 36: conductometría de 3 conductos, irrigación con hipoclorito al 2,5%, medicación intraconducto Ca(OH)₂. Control agendado Jue 26 10:30 h.
                 </p>
               </div>
             </div>
 
             <div className="lg:col-span-5 space-y-3">
-              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 shadow-xs">
+              <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5 shadow-xs">
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
                   <Share2 className="w-4 h-4 text-teal-600" />
-                  <span>¿Derivás a otro colega?</span>
+                  <span>¿Derivás el caso a un colega?</span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Compartí esta ficha y su odontograma por enlace de WhatsApp. El especialista ve hallazgos y radiografías, pero{' '}
-                  <strong className="font-semibold">tus presupuestos y saldos permanecen privados.</strong>
+                  Mandás un enlace seguro por WhatsApp al endodoncista, cirujano o protesista. El especialista ve la ficha clínica, el odontograma y radiografías,{' '}
+                  <strong className="font-semibold">sin ver tus honorarios ni la caja.</strong>
                 </p>
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400 pt-1">
                   <Lock className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Caja y cuenta corriente ocultas en enlace compartido</span>
+                  <span>Presupuestos y saldos ocultos para colegas externos</span>
                 </div>
               </div>
             </div>
@@ -697,10 +822,9 @@ export const VoiceToCalendarWalkthrough: React.FC = () => {
 };
 
 /**
- * OdontoSys-inspired alternating 2-column visual walkthroughs covering:
- * 1. Agenda & WhatsApp reminders
- * 2. Historia clínica, Odontograma FDI & Colleague sharing
- * 3. Presupuestos, Caja diaria ($ UYU / USD) & Trabajos de Laboratorio
+ * Interactive 2-column visual showcases:
+ * 1. Historia clínica, Odontograma FDI con piezas vectoriales y derivación privada a colegas
+ * 2. Presupuestos, caja diaria ($ UYU / USD) y seguimiento de trabajos de laboratorio
  */
 export const AlternatingModuleShowcases: React.FC = () => {
   const [markedTeeth, setMarkedTeeth] = useState<Record<string, string>>({
@@ -714,16 +838,27 @@ export const AlternatingModuleShowcases: React.FC = () => {
     'en_laboratorio'
   );
 
-  const toggleTooth = (fdi: string) => {
+  const cycleTooth = (fdi: string) => {
+    const order = ['', 'Resina', 'Endodoncia', 'Corona'];
     setMarkedTeeth((prev) => {
+      const current = prev[fdi] || '';
+      const nextIdx = (order.indexOf(current) + 1) % order.length;
+      const nextVal = order[nextIdx];
       const next = { ...prev };
-      if (next[fdi]) {
+      if (!nextVal) {
         delete next[fdi];
       } else {
-        next[fdi] = 'Tratamiento';
+        next[fdi] = nextVal;
       }
       return next;
     });
+  };
+
+  const labStatusHint: Record<typeof labStage, string> = {
+    sin_enviar: 'Recordatorio en Agenda: impresión aún pendiente de retiro por el laboratorio.',
+    en_laboratorio: 'En confección en Lab. Dental Sur · Entrega prevista viernes 15:00 h.',
+    en_clinica: 'Trabajo recibido en el consultorio · Listo para prueba en sillón.',
+    instalado: 'Corona instalada y cementada · Orden cerrada sin alertas pendientes.',
   };
 
   return (
@@ -734,20 +869,20 @@ export const AlternatingModuleShowcases: React.FC = () => {
           <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
             Historia clínica y odontograma
           </p>
-          <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+          <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
             Odontograma FDI interactivo y derivación segura a colegas
           </h3>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
-            Registrá caras dentarias, periodontograma, archivos y evoluciones ordenadas por fecha. Cuando trabajás en equipo o derivás a un especialista, enviás un enlace por WhatsApp sin exponer presupuestos ni finanzas.
+            Registrá caras dentarias, periodontograma, radiografías y evoluciones ordenadas por fecha. Cuando trabajás con otro especialista, enviás un enlace por WhatsApp sin mostrar tus presupuestos ni tu caja.
           </p>
           <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200 pt-1">
             <li className="flex items-start gap-2">
               <Check className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
-              <span>Odontograma permanente y temporario con actualización directa desde la ficha.</span>
+              <span>Odontograma permanente y temporario conectado a cada evolución.</span>
             </li>
             <li className="flex items-start gap-2">
               <Check className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
-              <span>Enlace compartido de solo lectura clínica con privacidad financiera total.</span>
+              <span>Derivación por WhatsApp con privacidad total sobre aranceles y saldos.</span>
             </li>
           </ul>
         </div>
@@ -760,40 +895,44 @@ export const AlternatingModuleShowcases: React.FC = () => {
                   Ficha clínica · Lucía Méndez
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Tocá una pieza para marcar estado o probá la vista de colega
+                  Hacé clic en una pieza para cambiar su estado o probá la vista de colega
                 </div>
               </div>
 
               <button
                 type="button"
                 onClick={() => setColleagueView((v) => !v)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
                   colleagueView
                     ? 'bg-teal-600 text-white border-teal-700'
                     : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
                 }`}
               >
                 <Share2 className="w-3.5 h-3.5" />
-                <span>{colleagueView ? 'Vista colega (sin precios)' : 'Simular enlace colega'}</span>
+                <span>{colleagueView ? 'Vista colega (sin importes)' : 'Simular enlace colega'}</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-6 gap-2 text-center">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
               {['16', '14', '11', '21', '36', '46'].map((fdi) => {
                 const state = markedTeeth[fdi];
+                const isMarked = Boolean(state);
                 return (
                   <button
                     key={fdi}
                     type="button"
-                    onClick={() => toggleTooth(fdi)}
+                    onClick={() => cycleTooth(fdi)}
                     className={`p-2.5 rounded-xl border transition-colors cursor-pointer ${
-                      state
-                        ? 'bg-teal-50 dark:bg-teal-950/60 border-teal-500 text-teal-900 dark:text-teal-200'
-                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300'
+                      isMarked
+                        ? 'bg-teal-600 border-teal-700 text-white shadow-xs'
+                        : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-teal-400'
                     }`}
                   >
-                    <div className="font-mono text-xs font-bold">{fdi}</div>
-                    <div className="text-[10px] truncate mt-0.5">{state || 'Sana'}</div>
+                    <ToothSilhouette fdi={fdi} active={isMarked} />
+                    <div className="font-mono text-xs font-bold mt-1">{fdi}</div>
+                    <div className={`text-[10px] truncate mt-0.5 ${isMarked ? 'text-teal-50' : 'text-slate-500'}`}>
+                      {state || 'Sana'}
+                    </div>
                   </button>
                 );
               })}
@@ -802,7 +941,7 @@ export const AlternatingModuleShowcases: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
                 <div className="font-bold text-slate-900 dark:text-white">
-                  Evolución clínica visible
+                  Evolución clínica compartida
                 </div>
                 <p className="text-slate-600 dark:text-slate-300">
                   Endodoncia mecanizada pieza 36 + radiografía periapical adjunta.
@@ -811,7 +950,7 @@ export const AlternatingModuleShowcases: React.FC = () => {
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 dark:text-white">
-                    Cuentas y presupuesto
+                    Presupuestos y caja
                   </span>
                   {colleagueView && <Lock className="w-3.5 h-3.5 text-teal-600" />}
                 </div>
@@ -834,7 +973,7 @@ export const AlternatingModuleShowcases: React.FC = () => {
                   Caja diaria y trabajos de laboratorio
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Cambiá la moneda o tocá la etapa del protésico
+                  Alterná la moneda del consultorio o probá los estados del protésico
                 </div>
               </div>
 
@@ -844,7 +983,7 @@ export const AlternatingModuleShowcases: React.FC = () => {
                     key={curr}
                     type="button"
                     onClick={() => setDemoCurrency(curr)}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
                       demoCurrency === curr
                         ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
                         : 'text-slate-500 dark:text-slate-400'
@@ -856,21 +995,21 @@ export const AlternatingModuleShowcases: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 tabular-nums">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 tabular-nums">
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">Cobrado del día</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">Cobrado en el día</div>
                 <div className="text-base sm:text-lg font-mono font-bold text-teal-700 dark:text-teal-300 mt-1">
                   {demoCurrency === 'UYU' ? '$ 24.800' : 'USD 620'}
                 </div>
               </div>
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">Laboratorio</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">Gastos laboratorio</div>
                 <div className="text-base sm:text-lg font-mono font-bold text-slate-900 dark:text-white mt-1">
                   {demoCurrency === 'UYU' ? '$ 5.400' : 'USD 135'}
                 </div>
               </div>
               <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800">
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">Neto consultorio</div>
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">Saldo neto</div>
                 <div className="text-base sm:text-lg font-mono font-bold text-emerald-700 dark:text-emerald-300 mt-1">
                   {demoCurrency === 'UYU' ? '$ 19.400' : 'USD 485'}
                 </div>
@@ -879,12 +1018,12 @@ export const AlternatingModuleShowcases: React.FC = () => {
 
             {/* Interactive Lab Order Tracking Row */}
             <div className="p-4 rounded-2xl bg-[#F4F8F8] dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-3">
-              <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="font-bold text-slate-900 dark:text-white">
-                  Orden Lab #108 · Corona Zirconia pza. 46 (Lab. Dental Sur)
+                  Trabajo de prótesis · Corona Zirconia pieza 46 (Lab. Dental Sur)
                 </span>
-                <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300">
-                  Entrega: Viernes 15:00
+                <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300 tabular-nums">
+                  Entrega: Viernes 15:00 h
                 </span>
               </div>
 
@@ -903,7 +1042,7 @@ export const AlternatingModuleShowcases: React.FC = () => {
                       key={stage.id}
                       type="button"
                       onClick={() => setLabStage(stage.id)}
-                      className={`py-2 px-2.5 rounded-xl text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      className={`py-2 px-2.5 rounded-xl text-[11px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
                         active
                           ? 'bg-teal-600 text-white border-teal-700'
                           : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-teal-400'
@@ -914,6 +1053,10 @@ export const AlternatingModuleShowcases: React.FC = () => {
                   );
                 })}
               </div>
+
+              <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                {labStatusHint[labStage]}
+              </p>
             </div>
           </div>
         </div>
@@ -922,20 +1065,20 @@ export const AlternatingModuleShowcases: React.FC = () => {
           <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
             Presupuestos, caja y laboratorio
           </p>
-          <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Controlá cobros en pesos uruguayos, dólares y órdenes de laboratorio
+          <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
+            Controlá cobros en pesos uruguayos, dólares y órdenes al protesista
           </h3>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
-            Generá presupuestos aprobados, registrá entregas parciales o cuotas en efectivo, transferencia o POS, y seguí qué prótesis está en el laboratorio antes de citar al paciente.
+            Armá presupuestos claros, registrá señas o pagos en cuotas (efectivo, transferencia o POS) y verificá si la prótesis ya llegó al consultorio antes de confirmar el turno.
           </p>
           <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200 pt-1">
             <li className="flex items-start gap-2">
               <Check className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
-              <span>Alertas automáticas en Agenda cuando un trabajo de laboratorio aún no llegó.</span>
+              <span>Avisos automáticos en Agenda si un trabajo sigue en el laboratorio.</span>
             </li>
             <li className="flex items-start gap-2">
               <Check className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
-              <span>Reportes de caja, cuentas por cobrar y liquidación entre profesionales.</span>
+              <span>Cierre diario de caja, saldos pendientes y liquidación por profesional.</span>
             </li>
           </ul>
         </div>

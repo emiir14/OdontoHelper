@@ -10,7 +10,7 @@ Esta carpeta `/setup/` reúne **todos los archivos y pasos necesarios** para lle
 |---|---|---|
 | **Vercel (Frontend + `/api/*`)** | Sirve la Landing comercial SEO (`/`, `/funciones`, `/dictado-por-voz`, `/planes`, `/preguntas-frecuentes`) separada del sistema clínico autenticado, más funciones serverless en `/api/*` (`/api/health` y `/api/agenda-feed.ics` para Apple Calendar `webcal://`). | `vercel.json` ya configura SPA rewrites, `COOP/COEP` para Whisper local, `microphone=(self)` y CSP estricta. |
 | **Supabase (Auth + Postgres + Storage)** | Registro/login con prueba gratis de 7 días (`handle_new_auth_user`), historias clínicas, pacientes, agenda, presupuestos, caja, odontogramas, radiografías privadas (`patient-files`), RPC seguro para feed `webcal://` y suscripciones. | **No almacena audios** en el MVP. Todo protegido por Row-Level Security (RLS). |
-| **Google Calendar OAuth** | Cada profesional conecta su propia cuenta de Google (`calendar.events`) usando `firebase-applet-config.json` con tokens solo en memoria. | Recordá agregar tu dominio de Vercel / `.com.uy` en **Firebase Auth → Authorized domains** y en Google Cloud OAuth. |
+| **Google Calendar OAuth** | Cada profesional conecta su propia cuenta de Google (`calendar.events`) usando variables `VITE_FIREBASE_*` en Vercel (sin subir `firebase-applet-config.json` a Git) y tokens solo en memoria. | Agregá tu dominio en **Firebase Auth → Authorized domains** y restringí la API Key por **HTTP Referrer + API** en Google Cloud Console. |
 | **Navegador del odontólogo** | Grabación 16 kHz PCM en `IndexedDB` + transcripción Whisper local en WebAssembly. | En **Plan Profesional (`base`)** y prueba gratis el audio **no se comprime** ni sale del dispositivo. |
 | **Cloudflare R2 (Futuro Plan Extra)** | *Fuera del MVP.* Guardará audios comprimidos en navegador (`Opus 24 kbps` / `AAC` ≈ `10.8 MB/h`) para **planes avanzados únicamente** (`extra` / `mega`), con cuota razonable de **20 GB (~1.800 hs)** por consultorio. | El código ya deja listas las columnas SQL, tipos en `Session` y helpers en `src/core/audio/cloudAudioSync.ts`. |
 
@@ -27,6 +27,7 @@ Podés usar `/.env.example` como plantilla.
 | `VITE_SUPABASE_URL` | Supabase → **Project Settings → API → Project URL** | Conexión a Auth, Postgres y Storage | Sí (`VITE_*` es público, protegido por RLS) |
 | `VITE_SUPABASE_ANON_KEY` | Supabase → **Project Settings → API → `anon` `public` key** | Clave pública anónima de Supabase | Sí (segura con RLS estricto habilitado) |
 | `VITE_GITHUB_REPO` | Tu repo en formato `usuario/repo` (ej. `emiir14/LocalTrans`) | Descargas opcionales desktop/APK | Sí |
+| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Firebase Console → **Project Settings → Your apps (Web)** | Google Calendar OAuth por profesional (opcional; nunca commitear `firebase-applet-config.json` a Git) | Sí (restringir por dominio en Google Cloud) |
 
 ### B. Variables futuras para Cloudflare R2 (solo cuando implementes Plan Extra)
 
@@ -116,9 +117,12 @@ No necesitás configurar rewrites manuales en el panel porque `vercel.json` ya d
 
 ### 4.4. Dominio propio `.com.uy` / `.uy`, Google OAuth y SEO
 1. En **Vercel → Project → Settings → Domains**, agregá tu dominio (ej. `odontohelper.com.uy` y `www.odontohelper.com.uy`, eligiendo uno como principal con redirect 308 al otro).
-2. Para que el popup de **Google Calendar** funcione en tu dominio final de producción y preview:
+2. Para que el popup de **Google Calendar** funcione en tu dominio final de producción de forma segura:
+   - Cargá `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID` (y opcionalmente `STORAGE_BUCKET`, `MESSAGING_SENDER_ID`, `APP_ID`) en **Vercel → Environment Variables** y en `.env.local` (ambos excluidos de Git por `.gitignore`).
    - En **Firebase Console → Authentication → Settings → Authorized domains**, agregá `tu-dominio.com.uy` y `tu-proyecto.vercel.app`.
-   - En **Google Cloud Console → APIs & Services → Credentials** (OAuth Client del proyecto `gen-lang-client-0728564052`), verificá que estén autorizados tus orígenes HTTPS.
+   - En **Google Cloud Console → APIs & Services → Credentials → tu Browser API Key**, configurá:
+     - **Application restrictions → Websites**: permití solo `https://tu-dominio.com.uy/*`, `https://tu-proyecto.vercel.app/*` y `http://localhost:3000/*`.
+     - **API restrictions → Restrict key**: habilitá únicamente **Identity Toolkit API**, **Token Service API** y **Google Calendar API** (nunca dejes habilitadas APIs de pago como Gemini sobre la clave pública web).
 3. Si tu dominio final difiere de `https://odontohelper.com.uy`, actualizá:
    - `CANONICAL_ORIGIN` en `src/core/seo/seoManager.ts`
    - `public/sitemap.xml` y `public/robots.txt`

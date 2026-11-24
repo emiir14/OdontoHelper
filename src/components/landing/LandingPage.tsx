@@ -15,9 +15,10 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import heroClinicImg from '../../assets/images/hero_dental_workspace_1795287115633.jpg';
-import testimonial1Img from '../../assets/images/dentist_testimonial_1_1795287115089.jpg';
-import testimonial2Img from '../../assets/images/dentist_testimonial_2_1795287115889.jpg';
+import clinicOperatoryImg from '../../assets/images/clinic_operatory_hero_1795530859590.jpg';
+import clinicDeskImg from '../../assets/images/clinic_consultation_desk_1795530850935.jpg';
+import testimonial1Img from '../../assets/images/odontologa_portrait_uy_1795530851062.jpg';
+import testimonial2Img from '../../assets/images/odontologo_portrait_uy_1795530851326.jpg';
 import {
   BILLING_CYCLE_OPTIONS,
   SUBSCRIPTION_PLANS,
@@ -57,33 +58,33 @@ const ROUTE_HERO_COPY: Record<
   { heading: string; subtitle: string; primaryCta: string }
 > = {
   landing: {
-    heading: 'El software odontológico con historia clínica, agenda y dictado por voz.',
+    heading: 'Historia clínica, agenda y dictado por voz pensados para tu consultorio.',
     subtitle:
-      'Organizá turnos con avisos por WhatsApp, odontograma, presupuestos en pesos o dólares y evolución clínica dictada hablando al micrófono, sin complicarte.',
-    primaryCta: 'Comenzar prueba gratis 7 días',
+      'Organizá tus turnos con avisos por WhatsApp, Google y Apple Calendar, odontograma FDI y caja en pesos uruguayos o dólares, sin complicarte.',
+    primaryCta: 'Probar 7 días gratis',
   },
   funciones: {
     heading: 'Todo tu consultorio conectado en una sola plataforma web y móvil.',
     subtitle:
-      'Desde la agenda del día y el odontograma interactivo hasta trabajos de laboratorio, caja diaria y derivación privada entre colegas.',
+      'Desde la agenda diaria y el odontograma interactivo hasta trabajos de laboratorio, caja en pesos o dólares y derivación privada entre colegas.',
     primaryCta: 'Probar 7 días sin costo',
   },
   'dictado-por-voz': {
-    heading: 'Dictá la consulta, confirmá el próximo control y sumalo al calendario en segundos.',
+    heading: 'Dictá la consulta al terminar y dejá el próximo control agendado en segundos.',
     subtitle:
-      'El sistema convierte tu voz en texto automáticamente, identifica piezas dentarias e indicaciones y te deja el próximo turno listo para agendar.',
+      'El sistema convierte tu voz en texto directo en tu computadora o celular, reconoce piezas dentarias e indicaciones y prepara el próximo turno.',
     primaryCta: 'Probar dictado gratis 7 días',
   },
   planes: {
-    heading: 'Planes simples desde USD 40/mes con descuento trimestral y anual.',
+    heading: 'Planes claros desde USD 40/mes con descuento trimestral y anual.',
     subtitle:
-      'Probá 7 días sin costo ni tarjeta. Luego elegí el plan adecuado y aboná exclusivamente en dólares (USD) por transferencia bancaria en Uruguay.',
-    primaryCta: 'Iniciar prueba gratuita de 7 días',
+      'Probá 7 días gratis sin ingresar tarjeta. Luego elegí tu plan y aboná exclusivamente en dólares (USD) por transferencia bancaria en Uruguay.',
+    primaryCta: 'Iniciar prueba de 7 días',
   },
   'preguntas-frecuentes': {
-    heading: 'Todo claro antes de llevar OdontoHelper a tu consultorio.',
+    heading: 'Todo claro antes de sumar OdontoHelper a tu consultorio.',
     subtitle:
-      'Conocé cómo funciona la prueba gratis, el dictado por voz, el resguardo de fichas clínicas y el pago por transferencia en USD.',
+      'Conocé cómo funciona la prueba de 7 días, la privacidad del dictado por voz, el resguardo de tus fichas y el pago por transferencia en USD.',
     primaryCta: 'Crear cuenta gratis 7 días',
   },
 };
@@ -92,32 +93,32 @@ const CLINICAL_CAPABILITIES = [
   {
     icon: Mic,
     title: 'Dictado clínico por voz',
-    desc: 'Hablás al terminar de atender y el texto queda ordenado en la ficha. En el Plan Profesional tus grabaciones quedan privadas en tu propio equipo.',
+    desc: 'Hablás al terminar de atender y la evolución queda redactada en la ficha. En el Plan Profesional los audios nunca salen de tu dispositivo.',
   },
   {
     icon: Calendar,
-    title: 'Agenda y WhatsApp sincronizados',
-    desc: 'Turnos por profesional, estados en sala de espera, recordatorios por WhatsApp y exportación rápida a Google Calendar.',
+    title: 'Agenda, WhatsApp y calendarios',
+    desc: 'Turnos por profesional, control en sala de espera, recordatorios por WhatsApp y sincronización con Google Calendar y Apple Calendar.',
   },
   {
     icon: FileText,
-    title: 'Odontograma FDI y Periodontograma',
-    desc: 'Marcá caras dentarias, sondajes, sangrado y adjuntá radiografías ordenadas en la línea temporal del paciente.',
+    title: 'Odontograma FDI y periodontograma',
+    desc: 'Marcá caras dentarias, sondajes y sangrado, y guardá radiografías o fotos clínicas ordenadas en la línea temporal del paciente.',
   },
   {
     icon: Share2,
-    title: 'Derivación entre colegas por enlace',
-    desc: 'Compartí historia clínica y odontograma por WhatsApp con otro especialista manteniendo presupuestos y saldos privados.',
+    title: 'Derivación segura entre colegas',
+    desc: 'Compartí historia clínica y odontograma por enlace de WhatsApp con otro especialista manteniendo tus presupuestos y saldos privados.',
   },
   {
     icon: Wallet,
     title: 'Presupuestos, caja y laboratorio',
-    desc: 'Operá en $ UYU o USD, registrá cobros parciales y controlá órdenes de prótesis antes de citar al paciente.',
+    desc: 'Trabajá en $ UYU o USD, registrá señas y cuotas, y controlá trabajos de prótesis antes de confirmar la cita del paciente.',
   },
   {
     icon: ShieldCheck,
-    title: 'Avisos de vencimiento en todos los planes',
-    desc: 'Alertas claras dentro del sistema antes de cada vencimiento para que nunca se interrumpa la atención diaria.',
+    title: 'Avisos claros antes de cada vencimiento',
+    desc: 'Notificaciones anticipadas dentro del sistema para que renueves con tiempo y nunca se interrumpa tu agenda diaria.',
   },
 ];
 
@@ -316,7 +317,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
               <div className="lg:col-span-6 space-y-6">
                 <p className="text-xs font-semibold text-teal-700 dark:text-teal-300 tracking-wide">
-                  Software odontológico en la nube y dictado local · Uruguay
+                  Software odontológico para consultorios en Uruguay
                 </p>
 
                 <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-bold tracking-tight leading-[1.12] text-slate-900 dark:text-white text-balance">
@@ -330,7 +331,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-teal-600 shrink-0" />
-                    <span>Agenda multiconsultorio con recordatorios por WhatsApp y Google Calendar</span>
+                    <span>Agenda multiconsultorio con WhatsApp, Google Calendar y Apple Calendar</span>
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-teal-600 shrink-0" />
@@ -338,7 +339,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </li>
                   <li className="flex items-center gap-2.5">
                     <Check className="w-4 h-4 text-teal-600 shrink-0" />
-                    <span>Dictado por voz automático directo en tu equipo, sin subir audios</span>
+                    <span>Dictado por voz privado directo en tu computadora o celular</span>
                   </li>
                 </ul>
 
@@ -346,7 +347,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <button
                     type="button"
                     onClick={handlePrimaryAction}
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors cursor-pointer shadow-sm"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-2xl text-sm font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors cursor-pointer shadow-sm whitespace-nowrap shrink-0"
                   >
                     <span>
                       {isAuthenticated ? 'Entrar a mi consultorio' : heroCopy.primaryCta}
@@ -360,10 +361,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                       const el = document.getElementById('simulacion');
                       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }}
-                    className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-sm font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-teal-500 transition-colors cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3.5 rounded-2xl text-sm font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-teal-500 transition-colors cursor-pointer whitespace-nowrap shrink-0"
                   >
                     <Play className="w-3.5 h-3.5 text-teal-600 fill-current" />
-                    <span>Ver grabación → calendario</span>
+                    <span>Ver cómo funciona</span>
                   </button>
                 </div>
 
@@ -388,13 +389,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="max-w-6xl mx-auto px-4 sm:px-6 space-y-8">
             <div className="max-w-2xl space-y-2">
               <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
-                Demostración animada del flujo real
+                Demostración animada del flujo diario
               </p>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
                 Mirá cómo una grabación se convierte en evolución clínica y turno en tu Agenda
               </h2>
               <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
-                Grabás 40 segundos al terminar de atender, el sistema redacta la nota clínica al instante y con un clic el control queda agendado con recordatorio por WhatsApp.
+                Grabás unos segundos apenas se levanta el paciente, el sistema redacta la nota clínica y con un clic el próximo control queda agendado con aviso por WhatsApp.
               </p>
             </div>
 
@@ -412,8 +413,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
                 Sistema completo para consultorios
               </p>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Todo lo que necesitás cada día en sillón y recepción
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
+                Todo lo que necesitás entre consulta y recepción
               </h2>
             </div>
 
@@ -597,7 +598,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     Pago directo por transferencia exclusivamente en USD
                   </div>
                   <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
-                    Aceptamos transferencias en dólares ({URUGUAY_BANK_TRANSFER_INFO.banks.map((b) => b.name).join(' · ')}). Informás tu comprobante dentro de Configuración y te habilitamos al instante.
+                    Aceptamos transferencias en dólares ({URUGUAY_BANK_TRANSFER_INFO.banks.map((b) => b.name).join(' · ')}). Informás tu comprobante dentro de Configuración y activamos tu consultorio en el día.
                   </p>
                 </div>
               </div>
@@ -608,34 +609,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed max-w-4xl">
-              Cláusula de uso razonable (Plan Extra): admite grabaciones completas de consultas de 1 hora o más (transcripción íntegra en tu equipo) con hasta 1.800 horas (~20 GB en formato liviano) de audio guardado en la nube por consultorio. Las historias clínicas en texto permanecen guardadas siempre sin límite de tiempo.
+              Cláusula de uso razonable (Plan Extra): admite grabaciones completas de consultas de 1 hora o más (transcripción íntegra en tu computadora o celular) con hasta 1.800 horas (~20 GB en formato liviano) de audio guardado en la nube por consultorio. Las historias clínicas escritas quedan guardadas siempre sin límite de tiempo.
             </p>
           </div>
         </section>
 
-        {/* Consultorio Real Visual + Testimonials Section */}
+        {/* Consultorio Real Visual Gallery + Testimonials Section */}
         <section className="max-w-6xl mx-auto px-4 sm:px-6 py-14 lg:py-20 space-y-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-            <div className="lg:col-span-5 space-y-3">
-              <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
-                Diseñado junto a odontólogos
-              </p>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Consultorios reales que dejaron atrás el papel y la planilla
-              </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                Pensado para clínicas individuales y equipos multidisciplinarios en Montevideo e interior del país.
-              </p>
+          <div className="max-w-2xl space-y-2.5">
+            <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
+              Diseñado junto a odontólogos en Uruguay
+            </p>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
+              Consultorios reales que dejaron atrás el papel y las planillas sueltas
+            </h2>
+            <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
+              Pensado para el ritmo diario entre el sillón y el escritorio, tanto en consultorios individuales como en clínicas multidisciplinarias de Montevideo e interior.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            <div className="lg:col-span-7 aspect-[16/9] rounded-3xl overflow-hidden bg-gradient-to-br from-teal-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <img
+                src={clinicOperatoryImg}
+                alt="Sillón odontológico y box clínico luminoso en consultorio moderno de Uruguay"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
             </div>
-            <div className="lg:col-span-7">
-              <div className="aspect-[16/9] rounded-3xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-800 shadow-sm">
-                <img
-                  src={heroClinicImg}
-                  alt="Consultorio odontológico moderno usando OdontoHelper en tablet y computadora"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-              </div>
+
+            <div className="lg:col-span-5 aspect-[16/9] lg:aspect-auto rounded-3xl overflow-hidden bg-gradient-to-br from-slate-100 to-teal-50 dark:from-slate-800 dark:to-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <img
+                src={clinicDeskImg}
+                alt="Escritorio de consulta odontológica con vista al sillón clínico"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover"
+              />
             </div>
           </div>
 

@@ -9,6 +9,7 @@ import {
   GOOGLE_CALENDAR_SCOPES,
   buildGoogleCalendarEventBody,
   mapGoogleApiEvent,
+  resolveFirebaseWebConfig,
 } from '../src/core/calendar/googleCalendarClient';
 import { Appointment } from '../src/core/types';
 
@@ -117,5 +118,35 @@ describe('Google Calendar API Adapter & Least-Privilege Scope', () => {
 
     const cancelled = mapGoogleApiEvent({ id: 'gcal_c', status: 'cancelled' });
     expect(cancelled).toBeNull();
+  });
+
+  it('prefers VITE_FIREBASE_* environment variables over file fallback for zero-secret builds', () => {
+    const fromEnv = resolveFirebaseWebConfig(
+      {
+        VITE_FIREBASE_API_KEY: 'test-browser-key-placeholder',
+        VITE_FIREBASE_PROJECT_ID: 'demo-proj',
+        VITE_FIREBASE_AUTH_DOMAIN: 'demo-proj.firebaseapp.com',
+        VITE_FIREBASE_APP_ID: '1:123:web:abc',
+      },
+      null
+    );
+    expect(fromEnv).toEqual({
+      apiKey: 'test-browser-key-placeholder',
+      projectId: 'demo-proj',
+      authDomain: 'demo-proj.firebaseapp.com',
+      appId: '1:123:web:abc',
+      storageBucket: undefined,
+      messagingSenderId: undefined,
+    });
+
+    const fromFallback = resolveFirebaseWebConfig(
+      {},
+      {
+        apiKey: 'fallback-placeholder',
+        projectId: 'fallback-proj',
+        authDomain: 'fallback-proj.firebaseapp.com',
+      }
+    );
+    expect(fromFallback?.projectId).toBe('fallback-proj');
   });
 });
