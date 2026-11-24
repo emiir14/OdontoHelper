@@ -6,10 +6,10 @@ import { TranscriptionMode } from '../types';
  * or neutral Rioplatense conversational Spanish, plus rolling previous-segment context.
  */
 
-export const CLINICAL_WHISPER_INITIAL_PROMPT =
+const CLINICAL_WHISPER_INITIAL_PROMPT =
   'Conversación clínica odontológica en español rioplatense. Buen día, revisamos la pieza 36, evaluamos caries oclusal, endodoncia o composite y registramos las indicaciones.';
 
-export const GENERAL_WHISPER_INITIAL_PROMPT =
+const GENERAL_WHISPER_INITIAL_PROMPT =
   'Conversación natural en español rioplatense con palabras claras y puntuación correcta.';
 
 /**

@@ -104,8 +104,6 @@ export const cardClass =
   'rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs';
 export const kpiCardClass =
   'p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 shadow-xs';
-export const cardSubtleClass =
-  'rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/70 dark:border-slate-800';
 export const emptyStateClass =
   'rounded-2xl bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 p-10 text-center';
 export const filterBarClass =

@@ -25,6 +25,12 @@ export interface StartRecordingOptions {
   skipSessionCreate?: boolean;
 }
 
+/**
+ * RecordingController captures 16kHz Int16 PCM via AudioWorklet for local Whisper transcription.
+ * Plan Profesional ('base') never runs browser audio compression or cloud sync.
+ * Future advanced plans ('extra' / 'mega') can attach an optional parallel MediaRecorder
+ * (audio/webm;codecs=opus @ 24 kbps) on this MediaStream when shouldCompressAudioForPlan() is true.
+ */
 export class RecordingController {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;

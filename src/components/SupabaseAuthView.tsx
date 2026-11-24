@@ -18,6 +18,7 @@ import {
 import {
   calculatePlanPricing,
   getCycleDisplayLabel,
+  getPlanDefinition,
   getTierDisplayLabel,
 } from '../core/clinic/subscriptionPlans';
 import { PaidSubscriptionPlanTier, SubscriptionBillingCycle } from '../core/types';
@@ -76,7 +77,8 @@ export const SupabaseAuthView: React.FC<SupabaseAuthViewProps> = ({
   }, [initialMode]);
 
   const cloudAuthReady = isSupabaseConfigured();
-  const activePlan = initialPlan || 'base';
+  const activePlan =
+    initialPlan && getPlanDefinition(initialPlan).available ? initialPlan : 'base';
   const activeCycle = initialCycle || 'annual';
   const selectedPricing = calculatePlanPricing(activePlan, activeCycle);
 
@@ -226,19 +228,19 @@ export const SupabaseAuthView: React.FC<SupabaseAuthViewProps> = ({
             <div className="py-4 space-y-1">
               <div className="text-sm font-semibold text-white">7 días de prueba completa</div>
               <p className="text-xs text-teal-100/70 leading-relaxed">
-                Probá todas las funciones en tu consultorio antes de elegir Plan Profesional, Extra o Mega.
+                Probá todas las funciones en tu consultorio antes de elegir entre el Plan Profesional o el Plan Extra.
               </p>
             </div>
             <div className="py-4 space-y-1">
               <div className="text-sm font-semibold text-white">Dictado por voz e historia clínica</div>
               <p className="text-xs text-teal-100/70 leading-relaxed">
-                Registrá evoluciones, anamnesis, odontograma FDI y periodontograma en segundos entre turno y turno.
+                Registrá evoluciones, anamnesis, odontograma y control de encías en segundos entre turno y turno.
               </p>
             </div>
             <div className="py-4 space-y-1">
-              <div className="text-sm font-semibold text-white">Activación directa por transferencia</div>
+              <div className="text-sm font-semibold text-white">Activación directa en USD</div>
               <p className="text-xs text-teal-100/70 leading-relaxed">
-                Cuando decidas continuar, transferís en BROU, Santander, Itaú, BBVA o Prex con descuento trimestral o anual.
+                Cuando decidas continuar, transferís en USD desde BROU, Santander, Itaú, BBVA o Prex con descuento trimestral o anual.
               </p>
             </div>
           </div>
@@ -291,7 +293,7 @@ export const SupabaseAuthView: React.FC<SupabaseAuthViewProps> = ({
               </div>
               <p className="text-[11px] text-teal-800/80 dark:text-teal-200/80 tabular-nums">
                 Referencia estimada post-prueba: USD {selectedPricing.effectiveMonthlyUsd}/mes
-                {selectedPricing.discountPct > 0 ? ` (${selectedPricing.discountPct}% OFF aplicado)` : ''}. Pago solo por transferencia bancaria.
+                {selectedPricing.discountPct > 0 ? ` (${selectedPricing.discountPct}% OFF aplicado)` : ''}. Pago únicamente en USD por transferencia bancaria.
               </p>
             </div>
           )}

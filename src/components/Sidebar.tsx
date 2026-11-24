@@ -572,7 +572,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Active Practitioner Footer */}
-      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 shrink-0">
+      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 shrink-0 space-y-1">
+        {!collapsed && (
+          <button
+            type="button"
+            onClick={() => {
+              guardNavigation(() => {
+                onCloseMobile();
+                window.history.pushState(null, '', '/');
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              });
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-teal-700 dark:hover:text-teal-300 hover:bg-slate-100 dark:hover:bg-slate-800/70 transition-colors cursor-pointer"
+          >
+            <span>Portada comercial y planes</span>
+            <span>/</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => handleNavigate('settings')}

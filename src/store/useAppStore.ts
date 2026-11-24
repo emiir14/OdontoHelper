@@ -1,6 +1,4 @@
 import { create } from 'zustand';
-import { applyGlossary } from '../../config/glossary';
-import { isConsecutiveDuplicate, isHallucination } from '../../config/hallucinations';
 import {
   sharedActivityRepo,
   sharedAppointmentRepo,
@@ -53,6 +51,17 @@ import {
   resolvePractitionerDisplay,
   toLocalIsoDate,
 } from '../core/clinic/clinicHelpers';
+import { generateCalendarFeedToken } from '../core/clinic/calendarFeed';
+import {
+  GoogleCalendarEventItem,
+  deleteGoogleCalendarEvent,
+  getGoogleCalendarAccessToken,
+  listGoogleCalendarEvents,
+  signInWithGoogleCalendar,
+  signOutGoogleCalendar,
+  subscribeGoogleCalendarAuthState,
+  upsertAppointmentToGoogleCalendar,
+} from '../core/calendar/googleCalendarClient';
 import {
   canMutateClinicalRecord,
   generateShareInviteToken,
@@ -87,7 +96,6 @@ import {
   AppointmentDraftInput,
   AppointmentStatus,
   AppSettings,
-  AudioChunk,
   ClinicalEvolutionDraftInput,
   ClinicalEvolutionEntry,
   ClinicalNote,
@@ -99,7 +107,6 @@ import {
   LabOrder,
   LabOrderDraftInput,
   LabOrderStatus,
-  ModelTier,
   OdontogramRecord,
   PaidSubscriptionPlanTier,
   Patient,
@@ -132,7 +139,7 @@ export const audioStore = sharedAudioStore;
 export const patientFileStore = sharedPatientFileStore;
 export const glossaryRepo = sharedGlossaryRepo;
 export const settingsRepo = sharedSettingsRepo;
-export const authProvider = sharedAuthProvider;
+const authProvider = sharedAuthProvider;
 export const patientRepo = sharedPatientRepo;
 export const providerRepo = sharedProviderRepo;
 export const appointmentRepo = sharedAppointmentRepo;
@@ -144,7 +151,7 @@ export const periodontogramRepo = sharedPeriodontogramRepo;
 export const treatmentPlanRepo = sharedTreatmentPlanRepo;
 export const financialTxRepo = sharedFinancialTxRepo;
 export const labOrderRepo = sharedLabOrderRepo;
-export const patientShareRepo = sharedPatientShareRepo;
+const patientShareRepo = sharedPatientShareRepo;
 
 let sharedRealtimeChannel:
   | ReturnType<NonNullable<ReturnType<typeof getSupabaseClient>>['channel']>
@@ -311,6 +318,13 @@ interface AppState {
   selectedAgendaDate: string | null;
   activeReportType: ReportTypeId;
 
+  // External Calendar Sync (Apple webcal:// feed + Google Calendar OAuth)
+  googleCalendarConnected: boolean;
+  googleCalendarUserEmail: string | null;
+  googleCalendarEvents: GoogleCalendarEventItem[];
+  googleCalendarLoading: boolean;
+  googleCalendarSyncing: boolean;
+
   // Subscription, 7-Day Trial & Bank Transfers
   workspaceSubscription: WorkspaceSubscription | null;
   transferRequests: SubscriptionTransferRequest[];
@@ -424,6 +438,14 @@ interface AppState {
   updateAppointment: (id: string, patch: Partial<AppointmentDraftInput>) => Promise<void>;
   updateAppointmentStatus: (id: string, status: AppointmentStatus) => Promise<void>;
   deleteAppointment: (id: string) => Promise<void>;
+  initGoogleCalendarListener: () => () => void;
+  connectGoogleCalendar: () => Promise<boolean>;
+  disconnectGoogleCalendar: () => Promise<void>;
+  refreshGoogleCalendarEvents: (centerDate?: string) => Promise<void>;
+  pushAppointmentToGoogleCalendar: (appointmentId: string) => Promise<boolean>;
+  syncPendingAppointmentsToGoogleCalendar: (appointmentIds: string[]) => Promise<number>;
+  removeAppointmentFromGoogleCalendar: (appointmentId: string) => Promise<boolean>;
+  regenerateCalendarFeedToken: () => Promise<string | null>;
   captureAppointmentFromTranscript: (
     transcriptText: string,
     options?: {
@@ -589,6 +611,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   micPermissionStatus: 'unknown',
   selectedAgendaDate: null,
   activeReportType: 'caja',
+
+  googleCalendarConnected: false,
+  googleCalendarUserEmail: null,
+  googleCalendarEvents: [],
+  googleCalendarLoading: false,
+  googleCalendarSyncing: false,
 
   workspaceSubscription: null,
   transferRequests: [],
@@ -2510,6 +2538,239 @@ export const useAppStore = create<AppState>((set, get) => ({
       id
     );
     get().showToast('Turno eliminado', 'info');
+  },
+
+  initGoogleCalendarListener: () => {
+    return subscribeGoogleCalendarAuthState(
+      (user) => {
+        set({
+          googleCalendarConnected: true,
+          googleCalendarUserEmail: user.email || user.displayName || 'Cuenta Google',
+        });
+      },
+      () => {
+        set({
+          googleCalendarConnected: false,
+          googleCalendarUserEmail: null,
+          googleCalendarEvents: [],
+        });
+      }
+    );
+  },
+
+  connectGoogleCalendar: async () => {
+    try {
+      const { user, accessToken } = await signInWithGoogleCalendar();
+      set({
+        googleCalendarConnected: true,
+        googleCalendarUserEmail: user.email || user.displayName || 'Cuenta Google',
+      });
+      await get().refreshGoogleCalendarEvents();
+      if (accessToken) {
+        get().showToast(
+          `Google Calendar conectado (${user.email || 'cuenta Google'})`,
+          'success'
+        );
+      }
+      return true;
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : 'No se pudo conectar con Google Calendar.';
+      get().showToast(msg, 'warning');
+      return false;
+    }
+  },
+
+  disconnectGoogleCalendar: async () => {
+    await signOutGoogleCalendar();
+    set({
+      googleCalendarConnected: false,
+      googleCalendarUserEmail: null,
+      googleCalendarEvents: [],
+    });
+    get().showToast('Sesión de Google Calendar desconectada', 'info');
+  },
+
+  refreshGoogleCalendarEvents: async (centerDate?: string) => {
+    const token = getGoogleCalendarAccessToken();
+    if (!token) {
+      set({ googleCalendarConnected: false, googleCalendarEvents: [] });
+      return;
+    }
+    set({ googleCalendarLoading: true });
+    try {
+      const base = centerDate ? new Date(`${centerDate}T12:00:00`) : new Date();
+      const validBase = Number.isNaN(base.getTime()) ? new Date() : base;
+      const start = new Date(validBase);
+      start.setDate(start.getDate() - 14);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(validBase);
+      end.setDate(end.getDate() + 45);
+      end.setHours(23, 59, 59, 999);
+
+      const events = await listGoogleCalendarEvents(
+        token,
+        start.toISOString(),
+        end.toISOString()
+      );
+      set({ googleCalendarEvents: events, googleCalendarLoading: false });
+    } catch (err: unknown) {
+      set({ googleCalendarLoading: false });
+      const msg =
+        err instanceof Error ? err.message : 'No se pudieron leer eventos de Google Calendar.';
+      if (msg.toLowerCase().includes('expir')) {
+        set({ googleCalendarConnected: false, googleCalendarEvents: [] });
+      }
+      get().showToast(msg, 'warning');
+    }
+  },
+
+  pushAppointmentToGoogleCalendar: async (appointmentId: string) => {
+    const token = getGoogleCalendarAccessToken();
+    if (!token) {
+      get().showToast('Conectá tu cuenta de Google Calendar primero.', 'warning');
+      return false;
+    }
+    const appt = get().appointments.find((a) => a.id === appointmentId && !a.deletedAt);
+    if (!appt) return false;
+    set({ googleCalendarSyncing: true });
+    try {
+      const result = await upsertAppointmentToGoogleCalendar(token, appt);
+      await appointmentRepo.update(appt.id, {
+        googleEventId: result.googleEventId,
+        googleSyncedAt: result.syncedAt,
+      });
+      set((s) => ({
+        googleCalendarSyncing: false,
+        appointments: s.appointments.map((a) =>
+          a.id === appt.id
+            ? {
+                ...a,
+                googleEventId: result.googleEventId,
+                googleSyncedAt: result.syncedAt,
+                updatedAt: result.syncedAt,
+              }
+            : a
+        ),
+      }));
+      await get().refreshGoogleCalendarEvents(appt.date);
+      get().showToast(
+        appt.googleEventId
+          ? 'Turno actualizado en Google Calendar'
+          : 'Turno guardado en Google Calendar',
+        'success'
+      );
+      return true;
+    } catch (err: unknown) {
+      set({ googleCalendarSyncing: false });
+      const msg =
+        err instanceof Error ? err.message : 'Error al sincronizar con Google Calendar.';
+      get().showToast(msg, 'warning');
+      return false;
+    }
+  },
+
+  syncPendingAppointmentsToGoogleCalendar: async (appointmentIds: string[]) => {
+    const token = getGoogleCalendarAccessToken();
+    if (!token) {
+      get().showToast('Conectá tu cuenta de Google Calendar primero.', 'warning');
+      return 0;
+    }
+    if (appointmentIds.length === 0) return 0;
+    set({ googleCalendarSyncing: true });
+    let synced = 0;
+    const updatedMap = new Map<string, { googleEventId: string; googleSyncedAt: number }>();
+    try {
+      for (const id of appointmentIds) {
+        const appt = get().appointments.find((a) => a.id === id && !a.deletedAt);
+        if (!appt) continue;
+        const result = await upsertAppointmentToGoogleCalendar(token, appt);
+        await appointmentRepo.update(appt.id, {
+          googleEventId: result.googleEventId,
+          googleSyncedAt: result.syncedAt,
+        });
+        updatedMap.set(appt.id, {
+          googleEventId: result.googleEventId,
+          googleSyncedAt: result.syncedAt,
+        });
+        synced += 1;
+      }
+      if (updatedMap.size > 0) {
+        set((s) => ({
+          appointments: s.appointments.map((a) => {
+            const upd = updatedMap.get(a.id);
+            return upd
+              ? {
+                  ...a,
+                  googleEventId: upd.googleEventId,
+                  googleSyncedAt: upd.googleSyncedAt,
+                  updatedAt: upd.googleSyncedAt,
+                }
+              : a;
+          }),
+        }));
+      }
+      await get().refreshGoogleCalendarEvents();
+      get().showToast(
+        `${synced} ${synced === 1 ? 'turno sincronizado' : 'turnos sincronizados'} con Google Calendar`,
+        'success'
+      );
+      return synced;
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : 'Error sincronizando turnos con Google Calendar.';
+      get().showToast(msg, 'warning');
+      return synced;
+    } finally {
+      set({ googleCalendarSyncing: false });
+    }
+  },
+
+  removeAppointmentFromGoogleCalendar: async (appointmentId: string) => {
+    const token = getGoogleCalendarAccessToken();
+    if (!token) {
+      get().showToast('Conectá tu cuenta de Google Calendar primero.', 'warning');
+      return false;
+    }
+    const appt = get().appointments.find((a) => a.id === appointmentId);
+    if (!appt?.googleEventId) return false;
+    set({ googleCalendarSyncing: true });
+    try {
+      await deleteGoogleCalendarEvent(token, appt.googleEventId);
+      await appointmentRepo.update(appt.id, {
+        googleEventId: undefined,
+        googleSyncedAt: undefined,
+      });
+      set((s) => ({
+        googleCalendarSyncing: false,
+        appointments: s.appointments.map((a) =>
+          a.id === appt.id
+            ? { ...a, googleEventId: undefined, googleSyncedAt: undefined, updatedAt: Date.now() }
+            : a
+        ),
+      }));
+      await get().refreshGoogleCalendarEvents(appt.date);
+      get().showToast('Evento quitado de Google Calendar', 'info');
+      return true;
+    } catch (err: unknown) {
+      set({ googleCalendarSyncing: false });
+      const msg =
+        err instanceof Error ? err.message : 'No se pudo quitar el evento de Google Calendar.';
+      get().showToast(msg, 'warning');
+      return false;
+    }
+  },
+
+  regenerateCalendarFeedToken: async () => {
+    const ws = get().workspace;
+    if (!ws) return null;
+    const nextToken = generateCalendarFeedToken();
+    await get().updateSettings({ calendarFeedToken: nextToken });
+    get().showToast(
+      'Enlace privado de Apple Calendar regenerado. El enlace anterior quedó revocado.',
+      'success'
+    );
+    return nextToken;
   },
 
   captureAppointmentFromTranscript: async (transcriptText, options = {}) => {

@@ -5,15 +5,18 @@
 --   - Solo los datos estructurados (historias clínicas, pacientes, proveedores,
 --     turnos/agenda, glosario, ajustes, metadatos y transcripciones en texto)
 --     se almacenan en Supabase.
---   - El audio PCM crudo y la inferencia/pesos del modelo Whisper permanecen
---     100% en el navegador local del usuario (IndexedDB + Cache Storage).
+--   - En el Plan Profesional ('base') y la prueba gratuita, el audio PCM crudo
+--     y la inferencia/pesos del modelo Whisper permanecen 100% en el navegador.
+--   - Las columnas audio_cloud_* de `sessions` dejan preparada la base para
+--     respaldos comprimidos en Cloudflare R2 en planes avanzados ('extra').
 --
 -- Instrucciones:
 --   1. Abrí tu proyecto en Supabase -> SQL Editor -> New query.
---   2. Pegá y ejecutá este archivo completo.
+--   2. Pegá y ejecutá este archivo completo (`setup/supabase-schema.sql`).
 --   3. Configurá en Vercel las variables:
 --        VITE_SUPABASE_URL
 --        VITE_SUPABASE_ANON_KEY
+--   4. Para aprobar transferencias USD manuales usá `setup/supabase-activar-suscripcion.sql`.
 -- ============================================================================
 
 -- 1. Espacios de trabajo / Consultorios
@@ -101,6 +104,10 @@ create table if not exists public.sessions (
   recorded_device_id text,
   recorded_device_label text,
   audio_cloud_status text not null default 'local_only',
+  audio_cloud_key text,
+  audio_cloud_bytes bigint,
+  audio_cloud_codec text check (audio_cloud_codec is null or audio_cloud_codec in ('opus_webm', 'aac_mp4')),
+  audio_cloud_duration_sec double precision,
   clinical_note jsonb,
   error text,
   created_at bigint not null,
@@ -112,6 +119,10 @@ alter table public.sessions add column if not exists audio_file_name text;
 alter table public.sessions add column if not exists recorded_device_id text;
 alter table public.sessions add column if not exists recorded_device_label text;
 alter table public.sessions add column if not exists audio_cloud_status text not null default 'local_only';
+alter table public.sessions add column if not exists audio_cloud_key text;
+alter table public.sessions add column if not exists audio_cloud_bytes bigint;
+alter table public.sessions add column if not exists audio_cloud_codec text;
+alter table public.sessions add column if not exists audio_cloud_duration_sec double precision;
 
 -- 6. Segmentos de transcripción en texto
 create table if not exists public.transcript_segments (
@@ -145,6 +156,8 @@ create table if not exists public.appointments (
   notes text,
   source_session_id text,
   auto_captured boolean not null default false,
+  google_event_id text,
+  google_synced_at bigint,
   created_at bigint not null,
   updated_at bigint not null,
   deleted_at bigint
@@ -152,6 +165,8 @@ create table if not exists public.appointments (
 
 alter table public.appointments add column if not exists professional_id text;
 alter table public.appointments add column if not exists professional_name text;
+alter table public.appointments add column if not exists google_event_id text;
+alter table public.appointments add column if not exists google_synced_at bigint;
 alter table public.appointments drop constraint if exists appointments_status_check;
 alter table public.appointments add constraint appointments_status_check check (status in ('pending', 'confirmed', 'waiting', 'in_progress', 'completed', 'cancelled'));
 
@@ -331,6 +346,7 @@ create table if not exists public.settings (
   show_currency_code boolean not null default false,
   audio_cloud_tier text not null default 'free',
   audio_cloud_auto_sync boolean not null default false,
+  calendar_feed_token text unique,
   updated_at bigint not null
 );
 
@@ -339,6 +355,11 @@ alter table public.settings add column if not exists currency text not null defa
 alter table public.settings add column if not exists show_currency_code boolean not null default false;
 alter table public.settings add column if not exists audio_cloud_tier text not null default 'free';
 alter table public.settings add column if not exists audio_cloud_auto_sync boolean not null default false;
+alter table public.settings add column if not exists calendar_feed_token text;
+update public.settings
+set calendar_feed_token = 'ohcal_' || md5(random()::text || clock_timestamp()::text || workspace_id) || substr(md5(workspace_id), 1, 4)
+where calendar_feed_token is null or length(calendar_feed_token) < 24;
+create unique index if not exists idx_settings_calendar_feed_token on public.settings(calendar_feed_token);
 alter table public.treatment_plans drop constraint if exists treatment_plans_currency_check;
 alter table public.treatment_plans alter column currency set default 'UYU';
 alter table public.financial_transactions drop constraint if exists financial_transactions_currency_check;
@@ -512,11 +533,14 @@ begin
 
   insert into public.settings (
     id, workspace_id, model_tier, noise_suppression, require_consent,
-    auto_transcribe_on_stop, progressive_transcription, transcription_mode, theme, currency, updated_at
+    auto_transcribe_on_stop, progressive_transcription, transcription_mode, theme, currency,
+    calendar_feed_token, updated_at
   )
   values (
     'settings_' || ws_id, ws_id, 'balanced', false, true,
-    false, true, 'dental', 'light', 'UYU', now_ms
+    false, true, 'dental', 'light', 'UYU',
+    'ohcal_' || md5(random()::text || clock_timestamp()::text || ws_id) || substr(md5(ws_id), 1, 4),
+    now_ms
   )
   on conflict (workspace_id) do nothing;
 
@@ -572,6 +596,67 @@ begin
   return to_jsonb(sub_row);
 end;
 $$;
+
+-- Feed iCal / webcal:// (lectura segura para Apple Calendar / Google suscripción mediante token privado)
+create or replace function public.get_calendar_feed_appointments(p_feed_token text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_workspace_id text;
+  v_clinic_name text;
+  v_appointments jsonb;
+begin
+  if p_feed_token is null or length(trim(p_feed_token)) < 24 then
+    return null;
+  end if;
+
+  select s.workspace_id, coalesce(w.name, 'OdontoHelper')
+    into v_workspace_id, v_clinic_name
+  from public.settings s
+  join public.workspaces w on w.id = s.workspace_id
+  where s.calendar_feed_token = trim(p_feed_token)
+    and w.deleted_at is null
+  limit 1;
+
+  if v_workspace_id is null then
+    return null;
+  end if;
+
+  select coalesce(
+    jsonb_agg(
+      jsonb_build_object(
+        'id', a.id,
+        'patientName', a.patient_name,
+        'procedure', a.procedure,
+        'date', a.date,
+        'startTime', a.start_time,
+        'durationMin', a.duration_min,
+        'status', a.status,
+        'professionalName', a.professional_name,
+        'notes', a.notes,
+        'updatedAt', a.updated_at
+      )
+      order by a.date asc, a.start_time asc
+    ),
+    '[]'::jsonb
+  )
+  into v_appointments
+  from public.appointments a
+  where a.workspace_id = v_workspace_id
+    and a.deleted_at is null;
+
+  return jsonb_build_object(
+    'clinicName', v_clinic_name,
+    'appointments', v_appointments
+  );
+end;
+$$;
+
+grant execute on function public.get_calendar_feed_appointments(text) to anon, authenticated;
 
 create or replace function public.can_access_shared_patient(p_owner_ws text, p_patient_id text)
 returns boolean

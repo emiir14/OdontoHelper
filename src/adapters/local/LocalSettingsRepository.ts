@@ -1,4 +1,8 @@
 import { ISettingsRepository } from '../../core/interfaces';
+import {
+  generateCalendarFeedToken,
+  isValidCalendarFeedToken,
+} from '../../core/clinic/calendarFeed';
 import { DEFAULT_CURRENCY } from '../../core/clinic/clinicHelpers';
 import { getDefaultModelTier, isTauriDesktop } from '../../core/runtime/platform';
 import { AppSettings } from '../../core/types';
@@ -19,6 +23,7 @@ export const createDefaultSettings = (workspaceId: string): AppSettings => ({
   theme: 'light',
   currency: DEFAULT_CURRENCY,
   showCurrencyCode: false,
+  calendarFeedToken: generateCalendarFeedToken(),
   updatedAt: Date.now(),
 });
 
@@ -27,10 +32,18 @@ export class LocalSettingsRepository implements ISettingsRepository {
     const desktop = isTauriDesktop();
     const existing = await db.settings.where('workspaceId').equals(workspaceId).first();
     if (existing) {
+      const hasValidToken = isValidCalendarFeedToken(existing.calendarFeedToken);
+      const calendarFeedToken = hasValidToken
+        ? existing.calendarFeedToken
+        : generateCalendarFeedToken();
+      if (!hasValidToken) {
+        await db.settings.update(existing.id, { calendarFeedToken });
+      }
       const normalized: AppSettings = {
         ...existing,
         currency: existing.currency || DEFAULT_CURRENCY,
         showCurrencyCode: existing.showCurrencyCode ?? false,
+        calendarFeedToken,
       };
       if (desktop && typeof localStorage !== 'undefined') {
         const applied = localStorage.getItem(EXE_MAX_DEFAULT_APPLIED_KEY);

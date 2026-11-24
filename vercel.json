@@ -1,21 +1,25 @@
 {
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- src public config index.html package.json vite.config.ts tsconfig.json vercel.json",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- src api public config index.html package.json vite.config.ts tsconfig.json vercel.json firebase-applet-config.json",
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
         { "key": "Cross-Origin-Embedder-Policy", "value": "credentialless" },
         { "key": "Referrer-Policy", "value": "no-referrer" },
         { "key": "Permissions-Policy", "value": "microphone=(self)" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://vercel.live; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://api.github.com https://huggingface.co https://*.huggingface.co https://hf.co https://*.hf.co https://*.amazonaws.com https://*.cloudfront.net https://*.xethub.com https://*.xethub.hf.co https://cdn.jsdelivr.net https://vercel.live wss://*.pusher.com; style-src 'self' 'unsafe-inline' https://vercel.live; img-src 'self' data: blob: https://*.supabase.co https://vercel.live https://vercel.com; media-src 'self' blob:; worker-src 'self' blob:; frame-src https://*.supabase.co https://vercel.live; font-src 'self' data: https://vercel.live https://assets.vercel.com;"
+          "value": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://vercel.live https://apis.google.com https://accounts.google.com; connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://api.github.com https://huggingface.co https://*.huggingface.co https://hf.co https://*.hf.co https://*.amazonaws.com https://*.cloudfront.net https://*.xethub.com https://*.xethub.hf.co https://cdn.jsdelivr.net https://vercel.live wss://*.pusher.com https://www.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://accounts.google.com https://*.firebaseapp.com; style-src 'self' 'unsafe-inline' https://vercel.live https://accounts.google.com; img-src 'self' data: blob: https://*.supabase.co https://vercel.live https://vercel.com https://*.googleusercontent.com; media-src 'self' blob:; worker-src 'self' blob:; frame-src https://*.supabase.co https://vercel.live https://accounts.google.com https://*.firebaseapp.com; font-src 'self' data: https://vercel.live https://assets.vercel.com;"
         }
       ]
     }
   ],
   "rewrites": [
+    {
+      "source": "/api/agenda-feed.ics",
+      "destination": "/api/agenda-feed"
+    },
     {
       "source": "/((?!api/|assets/|.*\\..*).*)",
       "destination": "/index.html"

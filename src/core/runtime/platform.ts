@@ -67,7 +67,7 @@ export function getDefaultModelTier(): 'balanced' | 'max' {
   return isTauriDesktop() ? 'max' : 'balanced';
 }
 
-export function parseSemverParts(raw: string): [number, number, number] {
+function parseSemverParts(raw: string): [number, number, number] {
   const cleaned = raw.trim().replace(/^v/i, '').split(/[-+]/)[0] || '0.0.0';
   const [maj = '0', min = '0', pat = '0'] = cleaned.split('.');
   return [
@@ -90,27 +90,6 @@ export function isNewerVersion(remoteTag: string, currentVersion: string = APP_V
   return compareVersions(remoteTag, currentVersion) > 0;
 }
 
-export async function openExternalUrl(url: string): Promise<void> {
-  const bridge = getTauriBridge();
-  if (bridge?.core?.invoke) {
-    try {
-      await bridge.core.invoke('plugin:opener|open_url', { url });
-      return;
-    } catch {
-      // fallback to anchor element below
-    }
-  }
-  if (typeof document !== 'undefined') {
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-}
-
 const GITHUB_REPO_STORAGE_KEY = 'escriba_github_repo';
 export const DEFAULT_GITHUB_REPO = 'emiir14/LocalTrans';
 
@@ -129,18 +108,6 @@ export function getConfiguredGithubRepo(): string {
     }
   }
   return DEFAULT_GITHUB_REPO;
-}
-
-export function saveConfiguredGithubRepo(repo: string): string {
-  const normalized = normalizeRepoSlug(repo);
-  if (typeof localStorage !== 'undefined') {
-    if (normalized) {
-      localStorage.setItem(GITHUB_REPO_STORAGE_KEY, normalized);
-    } else {
-      localStorage.removeItem(GITHUB_REPO_STORAGE_KEY);
-    }
-  }
-  return normalized || DEFAULT_GITHUB_REPO;
 }
 
 export function normalizeRepoSlug(raw: string): string {

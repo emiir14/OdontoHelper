@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DAY_MS,
   FREE_TRIAL_DAYS,
+  SUBSCRIPTION_PLANS,
+  URUGUAY_BANK_TRANSFER_INFO,
   buildTransferWhatsappUrl,
   buildWorkspaceTransferCode,
   calculatePlanPricing,
@@ -102,6 +104,41 @@ describe('Subscriptions, 7-Day Trial & All-Tier Expiration Alerts', () => {
     expect(decodeURIComponent(url)).toContain('USD 360');
     expect(decodeURIComponent(url)).toContain('TRF-9012');
     expect(decodeURIComponent(url)).toContain(code);
+  });
+
+  it('marks Mega Plan as unavailable while keeping Base and Extra active and USD-only transfer instructions', () => {
+    const base = SUBSCRIPTION_PLANS.find((p) => p.id === 'base');
+    const extra = SUBSCRIPTION_PLANS.find((p) => p.id === 'extra');
+    const mega = SUBSCRIPTION_PLANS.find((p) => p.id === 'mega');
+
+    expect(base?.available).toBe(true);
+    expect(extra?.available).toBe(true);
+    expect(mega?.available).toBe(false);
+    expect(mega?.availabilityLabel.toLowerCase()).toContain('no disponible');
+
+    const bankDetails = URUGUAY_BANK_TRANSFER_INFO.banks.map((b) => b.detail).join(' ');
+    expect(bankDetails).toContain('USD');
+    expect(bankDetails).not.toContain('UYU');
+  });
+
+  it('reserves browser audio compression and future cloud R2 backup strictly for advanced tiers (never Base or Trial)', async () => {
+    const {
+      isPlanEligibleForCloudAudio,
+      shouldCompressAudioForPlan,
+      CLOUD_AUDIO_FAIR_USE_BYTES,
+      CLOUD_AUDIO_TARGET_BITRATE_BPS,
+    } = await import('../src/core/audio/cloudAudioSync');
+
+    expect(isPlanEligibleForCloudAudio('trial')).toBe(false);
+    expect(isPlanEligibleForCloudAudio('base')).toBe(false);
+    expect(shouldCompressAudioForPlan('trial')).toBe(false);
+    expect(shouldCompressAudioForPlan('base')).toBe(false);
+
+    expect(isPlanEligibleForCloudAudio('extra')).toBe(true);
+    expect(shouldCompressAudioForPlan('extra')).toBe(true);
+    expect(isPlanEligibleForCloudAudio('mega')).toBe(true);
+    expect(CLOUD_AUDIO_FAIR_USE_BYTES).toBe(20 * 1024 * 1024 * 1024);
+    expect(CLOUD_AUDIO_TARGET_BITRATE_BPS).toBe(24_000);
   });
 });
 

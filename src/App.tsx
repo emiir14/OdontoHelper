@@ -119,9 +119,9 @@ export default function App() {
     typeof window !== 'undefined' ? window.location.search : ''
   );
 
-  // Ensure light warm porcelain aesthetic on public landing if document was dark from prior session
+  // Ensure SEO metadata matches the active public marketing route vs private auth routes
   useEffect(() => {
-    if (!hasActiveSession && parsed.publicRoute) {
+    if (parsed.publicRoute) {
       applyPublicSeoMetadata(parsed.publicRoute);
     } else if (!hasActiveSession && parsed.isLoginRoute) {
       applyPrivateNoIndexMetadata(
@@ -188,7 +188,23 @@ export default function App() {
     navigateToUrl('/', true);
   }, [navigateToUrl]);
 
-  // If authenticated -> lazy-load and mount the full clinical application
+  // Public Commercial Landing & Marketing Subpages (/, /funciones, /dictado-por-voz, /planes, /preguntas-frecuentes)
+  // Always accessible even if the browser already holds an active clinical session.
+  if (parsed.publicRoute) {
+    return (
+      <Suspense fallback={<ShellLoadingFallback />}>
+        <LandingPage
+          activeRoute={parsed.publicRoute}
+          isAuthenticated={hasActiveSession}
+          onGoToWorkspace={() => navigateToUrl(DEFAULT_AUTHENTICATED_ROUTE)}
+          onNavigateMarketing={handleNavigateMarketing}
+          onNavigateAuth={handleNavigateAuth}
+        />
+      </Suspense>
+    );
+  }
+
+  // If authenticated on any non-public route -> lazy-load and mount the full clinical application
   if (hasActiveSession) {
     return (
       <Suspense fallback={<ShellLoadingFallback />}>
@@ -198,21 +214,8 @@ export default function App() {
   }
 
   // Show lightweight spinner only when checking an existing Supabase session on a non-public route
-  if (checkingSupabaseSession && !parsed.publicRoute) {
+  if (checkingSupabaseSession) {
     return <ShellLoadingFallback />;
-  }
-
-  // Public Commercial Landing & Marketing Subpages (/, /funciones, /dictado-por-voz, /planes, /preguntas-frecuentes)
-  if (parsed.publicRoute) {
-    return (
-      <Suspense fallback={<ShellLoadingFallback />}>
-        <LandingPage
-          activeRoute={parsed.publicRoute}
-          onNavigateMarketing={handleNavigateMarketing}
-          onNavigateAuth={handleNavigateAuth}
-        />
-      </Suspense>
-    );
   }
 
   // Auth Views (/login, /registro) + protected routes (/compartir/:token or deep clinical paths when unauthenticated)

@@ -189,8 +189,6 @@ export const PatientSearchView: React.FC = () => {
     professionals,
     activeProfessionalId,
     clinicalEvolutions,
-    treatmentPlans,
-    financialTransactions,
     labOrders,
     patientFiles,
     patientFilesLoading,

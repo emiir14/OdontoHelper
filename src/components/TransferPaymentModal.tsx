@@ -96,7 +96,7 @@ export const TransferPaymentModal: React.FC = () => {
       open={isTransferModalOpen}
       onClose={closeTransferModal}
       title="Activar o renovar por transferencia bancaria"
-      subtitle="Pago directo en Uruguay sin comisiones de tarjeta"
+      subtitle="Pago directo exclusivamente en dólares (USD) en Uruguay"
       size="2xl"
     >
       <div className="p-4 sm:p-6 space-y-5 overflow-y-auto">
@@ -162,16 +162,20 @@ export const TransferPaymentModal: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 {SUBSCRIPTION_PLANS.map((plan) => {
                   const pCalc = calculatePlanPricing(plan.id, selectedCycle);
-                  const isSelected = selectedTier === plan.id;
+                  const isUnavailable = !plan.available;
+                  const isSelected = selectedTier === plan.id && !isUnavailable;
                   return (
                     <button
                       key={plan.id}
                       type="button"
-                      onClick={() => setSelectedTier(plan.id)}
-                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-teal-600 bg-teal-50/50 dark:bg-teal-950/35 ring-1 ring-teal-600'
-                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                      disabled={isUnavailable}
+                      onClick={() => !isUnavailable && setSelectedTier(plan.id)}
+                      className={`p-3.5 rounded-2xl border text-left transition-all ${
+                        isUnavailable
+                          ? 'border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/40 opacity-65 cursor-not-allowed'
+                          : isSelected
+                          ? 'border-teal-600 bg-teal-50/50 dark:bg-teal-950/35 ring-1 ring-teal-600 cursor-pointer'
+                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -189,11 +193,11 @@ export const TransferPaymentModal: React.FC = () => {
                         </span>
                       </div>
                       <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
-                        {plan.cloudAudioProcessing
-                          ? 'Incluye procesado en la nube'
+                        {isUnavailable
+                          ? 'No disponible por el momento'
                           : plan.cloudAudioStorage
-                          ? 'Incluye audio en la nube'
-                          : 'Audio 100% local en tu equipo'}
+                          ? 'Audios guardados en la nube'
+                          : 'Audios privados en tu equipo'}
                       </p>
                     </button>
                   );
@@ -220,7 +224,7 @@ export const TransferPaymentModal: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-slate-100">
                   <Landmark className="w-4 h-4 text-teal-600" />
-                  <span>2. Cuentas habilitadas en Uruguay</span>
+                  <span>2. Cuentas habilitadas en Uruguay (solo en USD)</span>
                 </div>
                 <button
                   type="button"
@@ -298,7 +302,7 @@ export const TransferPaymentModal: React.FC = () => {
                     type="text"
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Ej: Transferencia en UYU al cambio del día"
+                    placeholder="Ej: Transferencia en USD desde cuenta BROU"
                     className={`${inputClass} bg-white dark:bg-slate-900`}
                   />
                 </div>

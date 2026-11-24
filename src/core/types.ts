@@ -56,6 +56,10 @@ export interface Session {
   recordedDeviceId?: string;
   recordedDeviceLabel?: string;
   audioCloudStatus?: 'local_only' | 'premium_pending' | 'synced';
+  audioCloudKey?: string;
+  audioCloudBytes?: number;
+  audioCloudCodec?: 'opus_webm' | 'aac_mp4';
+  audioCloudDurationSec?: number;
   clinicalNote?: ClinicalNote;
   error?: string;
   createdAt: number;
@@ -116,6 +120,7 @@ export interface AppSettings {
   showCurrencyCode?: boolean;
   audioCloudTier?: 'free' | 'premium_audio';
   audioCloudAutoSync?: boolean;
+  calendarFeedToken?: string;
   updatedAt: number;
 }
 
@@ -270,6 +275,8 @@ export interface Appointment {
   notes?: string;
   sourceSessionId?: string;
   autoCaptured?: boolean;
+  googleEventId?: string;
+  googleSyncedAt?: number;
   createdAt: number;
   updatedAt: number;
   deletedAt?: number | null;

@@ -241,7 +241,7 @@ export function indexPatientsById(patients: Patient[]): {
   return { byId, byName };
 }
 
-export function indexTransactionsByPatient(
+function indexTransactionsByPatient(
   transactions: FinancialTransaction[]
 ): Map<string, FinancialTransaction[]> {
   const map = new Map<string, FinancialTransaction[]>();
@@ -679,7 +679,7 @@ export function downloadTextFile(
   downloadBlob(filename, new Blob([content], { type: mimeType }));
 }
 
-export function escapeCsvCell(val?: string | number | null): string {
+function escapeCsvCell(val?: string | number | null): string {
   const str = String(val ?? '');
   return `"${str.replace(/"/g, '""')}"`;
 }
@@ -704,7 +704,7 @@ export function downloadAppointmentIcsFile(appt: Appointment): void {
   downloadTextFile(`turno-${safeName}-${appt.date}.ics`, ics, 'text/calendar;charset=utf-8');
 }
 
-export function getPractitionerInitials(name: string): string {
+function getPractitionerInitials(name: string): string {
   const cleaned = name
     .replace(/\b(dr|dra|od|odont)\.?\b/gi, ' ')
     .trim();

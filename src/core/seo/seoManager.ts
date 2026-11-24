@@ -17,27 +17,32 @@ export const URUGUAY_LANDING_FAQS: Array<{ question: string; answer: string }> =
   {
     question: '¿Cuánto cuesta el sistema después de los 7 días y cómo se paga en Uruguay?',
     answer:
-      'El Plan Profesional cuesta $40 USD por mes, con descuento trimestral del 15% ($34 USD/mes) o anual del 25% ($30 USD/mes). Para evitar comisiones de pasarelas, se abona mediante transferencia bancaria en Uruguay (BROU, Santander, Itaú, BBVA, Prex o OCA Blue) informando el comprobante dentro del sistema o por WhatsApp.',
+      'El Plan Profesional cuesta $40 USD por mes, con descuento trimestral del 15% ($34 USD/mes) o anual del 25% ($30 USD/mes). Todos los abonos se pagan exclusivamente en dólares (USD) mediante transferencia bancaria en Uruguay (BROU, Santander, Itaú, BBVA, Prex o OCA Blue) informando el comprobante dentro del sistema o por WhatsApp.',
   },
   {
-    question: '¿Los audios de mis pacientes se envían a internet o quedan en mi equipo?',
+    question: '¿Las grabaciones de mis pacientes se suben a internet o quedan en mi equipo?',
     answer:
-      'En el Plan Profesional el dictado por voz funciona de manera 100% local en tu computadora o navegador con Whisper: el audio nunca sale de tu dispositivo. Si más adelante necesitás respaldo de grabaciones o procesado en servidores externos, podés pasar al Plan Extra o Mega Plan.',
+      'En el Plan Profesional el dictado por voz funciona directo en tu computadora o celular: el audio nunca sale de tu equipo. Si preferís guardar copias de tus audios en la nube para escucharlas desde otro dispositivo, podés elegir el Plan Extra (USD 59/mes). El Mega Plan no está disponible por el momento.',
   },
   {
-    question: '¿Puedo trabajar en Pesos Uruguayos ($ UYU) y en Dólares (USD)?',
+    question: '¿Puedo grabar y transcribir una consulta entera de una hora en el Plan Extra?',
     answer:
-      'Sí. OdontoHelper está preconfigurado por defecto en Pesos Uruguayos ($ UYU) y permite cambiar la moneda unificada a USD u otras monedas de la región desde Configuración para presupuestos, cuenta corriente, laboratorio y caja diaria.',
+      'Sí. Podés grabar consultas completas de 1 hora o más y el sistema transcribe la totalidad de la consulta. En el Plan Extra el respaldo en la nube comprime el audio de forma liviana y cuenta con una cláusula de uso razonable por consultorio de hasta 20 GB activos (más de 1.800 horas de grabación). Tus historias clínicas escritas y evoluciones quedan guardadas siempre sin límite.',
+  },
+  {
+    question: '¿Puedo trabajar en Pesos Uruguayos ($ UYU) y en Dólares (USD) con mis pacientes?',
+    answer:
+      'Sí. Para tus pacientes y tu caja diaria el sistema viene configurado en Pesos Uruguayos ($ UYU) y podés cambiarlo a USD desde Configuración en presupuestos, cuentas y laboratorio. (La suscripción al sistema sí se abona únicamente en dólares USD).',
   },
   {
     question: '¿Qué pasa si vence mi prueba o suscripción? ¿Pierdo las fichas de mis pacientes?',
     answer:
-      'Nunca perdés tus datos. El sistema muestra avisos previos al vencimiento en todos los planes y, si se cumple la fecha, conserva tus historias clínicas, odontogramas y radiografías intactos para que retomes apenas informes la renovación por transferencia.',
+      'Nunca perdés tus datos. El sistema muestra avisos previos al vencimiento en todos los planes y, si se cumple la fecha, conserva tus historias clínicas, odontogramas y radiografías intactos para que retomes apenas informes tu transferencia en USD.',
   },
   {
     question: '¿Se puede compartir una historia clínica con otro odontólogo o especialista?',
     answer:
-      'Sí. Podés generar un enlace privado de un solo uso para enviar por WhatsApp a un colega (endodoncista, cirujano o ortodoncista). Ambos ven y evolucionan el mismo odontograma y ficha clínica, manteniendo tus presupuestos y caja 100% privados.',
+      'Sí. Podés generar un enlace privado para enviar por WhatsApp a un colega (endodoncista, cirujano o ortodoncista). Ambos ven y evolucionan el mismo odontograma y ficha clínica, manteniendo tus presupuestos y caja 100% privados.',
   },
 ];
 

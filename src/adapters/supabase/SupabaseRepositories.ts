@@ -12,6 +12,10 @@ import {
   packPatientAnamnesis,
   unpackPatientProfileMeta,
 } from '../../core/clinic/clinicHelpers';
+import {
+  generateCalendarFeedToken,
+  isValidCalendarFeedToken,
+} from '../../core/clinic/calendarFeed';
 import { getDefaultModelTier } from '../../core/runtime/platform';
 import {
   ActivityActionType,
@@ -116,6 +120,11 @@ function mapSession(row: Record<string, unknown>): Session {
     recordedDeviceId: (row.recorded_device_id as string | null) ?? undefined,
     recordedDeviceLabel: (row.recorded_device_label as string | null) ?? undefined,
     audioCloudStatus: (row.audio_cloud_status as Session['audioCloudStatus'] | null) ?? undefined,
+    audioCloudKey: (row.audio_cloud_key as string | null) ?? undefined,
+    audioCloudBytes: row.audio_cloud_bytes != null ? Number(row.audio_cloud_bytes) : undefined,
+    audioCloudCodec: (row.audio_cloud_codec as Session['audioCloudCodec'] | null) ?? undefined,
+    audioCloudDurationSec:
+      row.audio_cloud_duration_sec != null ? Number(row.audio_cloud_duration_sec) : undefined,
     clinicalNote: (row.clinical_note as ClinicalNote | null) ?? undefined,
     error: (row.error as string | null) ?? undefined,
     createdAt: Number(row.created_at),
@@ -183,6 +192,9 @@ function mapSettings(row: Record<string, unknown>): AppSettings {
     audioCloudTier:
       row.audio_cloud_tier === 'premium_audio' ? 'premium_audio' : 'free',
     audioCloudAutoSync: Boolean(row.audio_cloud_auto_sync),
+    calendarFeedToken: isValidCalendarFeedToken(row.calendar_feed_token as string | null)
+      ? String(row.calendar_feed_token)
+      : undefined,
     updatedAt: Number(row.updated_at),
   };
 }
@@ -271,6 +283,8 @@ function mapAppointment(row: Record<string, unknown>): Appointment {
     notes: (row.notes as string | null) ?? undefined,
     sourceSessionId: (row.source_session_id as string | null) ?? undefined,
     autoCaptured: Boolean(row.auto_captured),
+    googleEventId: (row.google_event_id as string | null) ?? undefined,
+    googleSyncedAt: row.google_synced_at != null ? Number(row.google_synced_at) : undefined,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     deletedAt: row.deleted_at != null ? Number(row.deleted_at) : null,
@@ -568,6 +582,10 @@ export class SupabaseSessionRepository implements ISessionRepository {
       recorded_device_id: session.recordedDeviceId ?? null,
       recorded_device_label: session.recordedDeviceLabel ?? null,
       audio_cloud_status: session.audioCloudStatus ?? 'local_only',
+      audio_cloud_key: session.audioCloudKey ?? null,
+      audio_cloud_bytes: session.audioCloudBytes ?? null,
+      audio_cloud_codec: session.audioCloudCodec ?? null,
+      audio_cloud_duration_sec: session.audioCloudDurationSec ?? null,
       clinical_note: session.clinicalNote ?? null,
       error: session.error ?? null,
       created_at: session.createdAt,
@@ -580,12 +598,16 @@ export class SupabaseSessionRepository implements ISessionRepository {
       if (
         msg.includes('audio_file_name') ||
         msg.includes('recorded_device') ||
-        msg.includes('audio_cloud_status')
+        msg.includes('audio_cloud_')
       ) {
         delete row.audio_file_name;
         delete row.recorded_device_id;
         delete row.recorded_device_label;
         delete row.audio_cloud_status;
+        delete row.audio_cloud_key;
+        delete row.audio_cloud_bytes;
+        delete row.audio_cloud_codec;
+        delete row.audio_cloud_duration_sec;
         const { error: retryErr } = await supabase.from('sessions').upsert(row);
         if (retryErr) throw retryErr;
         return;
@@ -616,6 +638,18 @@ export class SupabaseSessionRepository implements ISessionRepository {
     if (patch.audioCloudStatus !== undefined) {
       payload.audio_cloud_status = patch.audioCloudStatus ?? 'local_only';
     }
+    if (patch.audioCloudKey !== undefined) {
+      payload.audio_cloud_key = patch.audioCloudKey ?? null;
+    }
+    if (patch.audioCloudBytes !== undefined) {
+      payload.audio_cloud_bytes = patch.audioCloudBytes ?? null;
+    }
+    if (patch.audioCloudCodec !== undefined) {
+      payload.audio_cloud_codec = patch.audioCloudCodec ?? null;
+    }
+    if (patch.audioCloudDurationSec !== undefined) {
+      payload.audio_cloud_duration_sec = patch.audioCloudDurationSec ?? null;
+    }
     if (patch.clinicalNote !== undefined) payload.clinical_note = patch.clinicalNote ?? null;
     if (patch.error !== undefined) payload.error = patch.error ?? null;
     if (patch.deletedAt !== undefined) payload.deleted_at = patch.deletedAt ?? null;
@@ -626,12 +660,16 @@ export class SupabaseSessionRepository implements ISessionRepository {
       if (
         msg.includes('audio_file_name') ||
         msg.includes('recorded_device') ||
-        msg.includes('audio_cloud_status')
+        msg.includes('audio_cloud_')
       ) {
         delete payload.audio_file_name;
         delete payload.recorded_device_id;
         delete payload.recorded_device_label;
         delete payload.audio_cloud_status;
+        delete payload.audio_cloud_key;
+        delete payload.audio_cloud_bytes;
+        delete payload.audio_cloud_codec;
+        delete payload.audio_cloud_duration_sec;
         const { error: retryErr } = await supabase.from('sessions').update(payload).eq('id', id);
         if (retryErr) throw retryErr;
         return;
@@ -743,7 +781,22 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       .eq('workspace_id', workspaceId)
       .maybeSingle();
     if (error) throw error;
-    if (data) return mapSettings(data);
+    if (data) {
+      const mapped = mapSettings(data);
+      if (!mapped.calendarFeedToken) {
+        const token = generateCalendarFeedToken();
+        try {
+          await supabase
+            .from('settings')
+            .update({ calendar_feed_token: token, updated_at: Date.now() })
+            .eq('id', mapped.id);
+        } catch {
+          // ignore if column isn't added yet on older DB
+        }
+        return { ...mapped, calendarFeedToken: token };
+      }
+      return mapped;
+    }
 
     const defaults: AppSettings = {
       id: `settings_${workspaceId}`,
@@ -760,6 +813,7 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       showCurrencyCode: getStoredShowCurrencyFallback(workspaceId),
       audioCloudTier: 'free',
       audioCloudAutoSync: false,
+      calendarFeedToken: generateCalendarFeedToken(),
       updatedAt: Date.now(),
     };
 
@@ -778,6 +832,7 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       show_currency_code: Boolean(defaults.showCurrencyCode),
       audio_cloud_tier: defaults.audioCloudTier,
       audio_cloud_auto_sync: Boolean(defaults.audioCloudAutoSync),
+      calendar_feed_token: defaults.calendarFeedToken,
       updated_at: defaults.updatedAt,
     };
 
@@ -787,12 +842,14 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       if (
         msg.includes('currency') ||
         msg.includes('show_currency_code') ||
-        msg.includes('audio_cloud_')
+        msg.includes('audio_cloud_') ||
+        msg.includes('calendar_feed_token')
       ) {
         delete row.currency;
         delete row.show_currency_code;
         delete row.audio_cloud_tier;
         delete row.audio_cloud_auto_sync;
+        delete row.calendar_feed_token;
         const { error: retryErr } = await supabase.from('settings').upsert(row);
         if (retryErr) throw retryErr;
       } else {
@@ -836,6 +893,9 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
     if (patch.audioCloudAutoSync !== undefined) {
       payload.audio_cloud_auto_sync = patch.audioCloudAutoSync;
     }
+    if (patch.calendarFeedToken !== undefined) {
+      payload.calendar_feed_token = patch.calendarFeedToken;
+    }
 
     const { error } = await supabase.from('settings').update(payload).eq('id', current.id);
     if (error) {
@@ -843,12 +903,14 @@ export class SupabaseSettingsRepository implements ISettingsRepository {
       if (
         msg.includes('currency') ||
         msg.includes('show_currency_code') ||
-        msg.includes('audio_cloud_')
+        msg.includes('audio_cloud_') ||
+        msg.includes('calendar_feed_token')
       ) {
         delete payload.currency;
         delete payload.show_currency_code;
         delete payload.audio_cloud_tier;
         delete payload.audio_cloud_auto_sync;
+        delete payload.calendar_feed_token;
         if (Object.keys(payload).length > 1) {
           const { error: retryErr } = await supabase
             .from('settings')
@@ -1121,7 +1183,7 @@ export class SupabaseAppointmentRepository {
 
   public async create(appointment: Appointment): Promise<void> {
     const supabase = requireClient();
-    const { error } = await supabase.from('appointments').upsert({
+    const row: Record<string, unknown> = {
       id: appointment.id,
       workspace_id: appointment.workspaceId,
       patient_id: appointment.patientId ?? null,
@@ -1138,11 +1200,24 @@ export class SupabaseAppointmentRepository {
       notes: appointment.notes ?? null,
       source_session_id: appointment.sourceSessionId ?? null,
       auto_captured: Boolean(appointment.autoCaptured),
+      google_event_id: appointment.googleEventId ?? null,
+      google_synced_at: appointment.googleSyncedAt ?? null,
       created_at: appointment.createdAt,
       updated_at: appointment.updatedAt,
       deleted_at: appointment.deletedAt ?? null,
-    });
-    if (error) throw error;
+    };
+    const { error } = await supabase.from('appointments').upsert(row);
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('google_event_id') || msg.includes('google_synced_at')) {
+        delete row.google_event_id;
+        delete row.google_synced_at;
+        const { error: retryErr } = await supabase.from('appointments').upsert(row);
+        if (retryErr) throw retryErr;
+        return;
+      }
+      throw error;
+    }
   }
 
   public async update(id: string, patch: Partial<Appointment>): Promise<void> {
@@ -1164,10 +1239,26 @@ export class SupabaseAppointmentRepository {
       payload.source_session_id = patch.sourceSessionId ?? null;
     }
     if (patch.autoCaptured !== undefined) payload.auto_captured = patch.autoCaptured;
+    if ('googleEventId' in patch) {
+      payload.google_event_id = patch.googleEventId ?? null;
+    }
+    if ('googleSyncedAt' in patch) {
+      payload.google_synced_at = patch.googleSyncedAt ?? null;
+    }
     if (patch.deletedAt !== undefined) payload.deleted_at = patch.deletedAt ?? null;
 
     const { error } = await supabase.from('appointments').update(payload).eq('id', id);
-    if (error) throw error;
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('google_event_id') || msg.includes('google_synced_at')) {
+        delete payload.google_event_id;
+        delete payload.google_synced_at;
+        const { error: retryErr } = await supabase.from('appointments').update(payload).eq('id', id);
+        if (retryErr) throw retryErr;
+        return;
+      }
+      throw error;
+    }
   }
 
   public async delete(id: string): Promise<void> {

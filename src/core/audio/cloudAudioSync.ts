@@ -1,15 +1,65 @@
-import { AppSettings } from '../types';
+import { AppSettings, SubscriptionPlanTier } from '../types';
 
 /**
- * Premium Cloud Audio Storage contract.
- * By default, OdontoHelper operates on the 'free' tier and does NOT have any cloud
- * audio provider configured. Raw audio NEVER leaves the device unless BOTH:
- *   1. The workspace has an active 'premium_audio' entitlement, AND
+ * Premium Cloud Audio Storage contract (Plan Extra / Mega — future R2 integration).
+ * - Plan Profesional ('base') & 7-day trial ('trial'): NEVER compress or upload audio;
+ *   16 kHz local PCM + local Whisper only.
+ * - Advanced plans ('extra', 'mega'): When R2 presign backend is connected, browser records
+ *   a parallel Opus/AAC compressed stream (~24 kbps = ~10.8 MB/hour) within a 20 GB
+ *   (~1,800 hours) reasonable-use clinic quota.
+ * - Raw audio NEVER leaves the device unless BOTH:
+ *   1. The workspace has an active eligible entitlement ('extra' | 'mega' / 'premium_audio'), AND
  *   2. A concrete cloud storage adapter has been configured and injected.
  */
 
+export const CLOUD_AUDIO_FAIR_USE_BYTES = 20 * 1024 * 1024 * 1024; // 20 GB (~1,800 h @ 24 kbps)
+export const CLOUD_AUDIO_TARGET_BITRATE_BPS = 24_000;
+
 export type CloudAudioPlanTier = 'free' | 'premium_audio';
-export type CloudAudioProviderKind = 'unconfigured' | 'future_cloud';
+export type CloudAudioProviderKind = 'unconfigured' | 'future_cloud' | 'cloudflare_r2';
+export type CloudAudioCompressedCodec = 'opus_webm' | 'aac_mp4';
+
+export interface CloudAudioCompressionSpec {
+  codec: CloudAudioCompressedCodec;
+  mimeType: string;
+  audioBitsPerSecond: number;
+  fileExtension: 'webm' | 'm4a';
+}
+
+export function isPlanEligibleForCloudAudio(planTier?: SubscriptionPlanTier | null): boolean {
+  return planTier === 'extra' || planTier === 'mega';
+}
+
+export function shouldCompressAudioForPlan(planTier?: SubscriptionPlanTier | null): boolean {
+  return isPlanEligibleForCloudAudio(planTier);
+}
+
+export function resolvePreferredCompressedAudioSpec(): CloudAudioCompressionSpec | null {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return null;
+  }
+  const candidates: CloudAudioCompressionSpec[] = [
+    {
+      codec: 'opus_webm',
+      mimeType: 'audio/webm;codecs=opus',
+      audioBitsPerSecond: CLOUD_AUDIO_TARGET_BITRATE_BPS,
+      fileExtension: 'webm',
+    },
+    {
+      codec: 'opus_webm',
+      mimeType: 'audio/webm',
+      audioBitsPerSecond: CLOUD_AUDIO_TARGET_BITRATE_BPS,
+      fileExtension: 'webm',
+    },
+    {
+      codec: 'aac_mp4',
+      mimeType: 'audio/mp4',
+      audioBitsPerSecond: CLOUD_AUDIO_TARGET_BITRATE_BPS,
+      fileExtension: 'm4a',
+    },
+  ];
+  return candidates.find((c) => MediaRecorder.isTypeSupported(c.mimeType)) ?? null;
+}
 
 export interface CloudAudioCapability {
   tier: CloudAudioPlanTier;

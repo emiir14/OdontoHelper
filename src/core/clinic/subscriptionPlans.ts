@@ -52,6 +52,7 @@ export interface SubscriptionPlanDefinition {
   tagline: string;
   monthlyUsd: number;
   highlighted?: boolean;
+  available: boolean;
   availabilityLabel: string;
   cloudAudioStorage: boolean;
   cloudAudioProcessing: boolean;
@@ -62,49 +63,51 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlanDefinition[] = [
   {
     id: 'base',
     name: 'Plan Profesional',
-    tagline: 'Consultorio completo y dictado clínico por voz en tu equipo.',
+    tagline: 'Todo lo necesario para ordenar tu consultorio y dictar tus historias clínicas sin escribir de más.',
     monthlyUsd: 40,
     highlighted: true,
+    available: true,
     availabilityLabel: 'Disponible ahora · 7 días gratis',
     cloudAudioStorage: false,
     cloudAudioProcessing: false,
     features: [
-      'Historias clínicas, odontograma FDI y periodontograma ilimitados',
-      'Dictado por voz Whisper 100% local en PC, notebook o celular sin envío de audio',
-      'Agenda multiconsultorio, presupuestos y caja diaria en $ UYU o USD',
-      'Derivación y ficha clínica compartida entre colegas por enlace único',
-      'Radiografías, archivos clínicos y reportes exportables',
-      'Soporte directo para consultorios en Uruguay',
+      'Historias clínicas completas, odontograma y control de encías para todos tus pacientes',
+      'Hablás al micrófono al terminar la consulta y el sistema escribe la evolución por vos',
+      'Tus grabaciones quedan privadas dentro de la computadora o celular donde las grabaste',
+      'Agenda ordenada con avisos por WhatsApp, presupuestos y caja en pesos o dólares',
+      'Compartí una ficha clínica por WhatsApp con otro colega sin mostrar tus presupuestos ni tu caja',
+      'Subí radiografías, fotos y generá reportes listos para imprimir o guardar',
     ],
   },
   {
     id: 'extra',
     name: 'Plan Extra',
-    tagline: 'Todo el sistema clínico más respaldo cifrado de audios en la nube.',
+    tagline: 'Pensado para quienes atienden desde varios equipos y quieren guardar sus grabaciones en la nube.',
     monthlyUsd: 59,
-    availabilityLabel: 'Almacenamiento de audios en la nube',
+    available: true,
+    availabilityLabel: 'Con respaldo de grabaciones en la nube',
     cloudAudioStorage: true,
     cloudAudioProcessing: false,
     features: [
       'Todo lo incluido en el Plan Profesional',
-      'Almacenamiento y sincronización de grabaciones de consulta en la nube',
-      'Acceso a tus audios originales desde cualquier equipo del consultorio',
-      'Respaldo automático y descarga en formato WAV cuando lo necesites',
+      'Grabá y transcribí consultas completas (incluso de 1 hora o más) y guardá el audio en la nube',
+      'Volvé a escuchar o descargá cualquier grabación desde otra computadora, tablet o celular',
+      'Uso razonable amplio por consultorio: hasta 1.800 horas (~20 GB comprimidos) de audio guardado en la nube',
     ],
   },
   {
     id: 'mega',
     name: 'Mega Plan',
-    tagline: 'Máxima velocidad con procesado de transcripción de audio en la nube.',
+    tagline: 'Transcripción de grabaciones desde servidores rápidos para cualquier celular, en preparación.',
     monthlyUsd: 89,
-    availabilityLabel: 'Procesado de audio en la nube',
+    available: false,
+    availabilityLabel: 'No disponible por el momento',
     cloudAudioStorage: true,
     cloudAudioProcessing: true,
     features: [
       'Todo lo incluido en el Plan Extra',
-      'Procesado de voz y transcripción en servidores de alta velocidad en la nube',
-      'Ideal para celulares y tablets sin descargar modelos locales pesados',
-      'Prioridad máxima en cola de transcripción y mayor cuota de archivo clínico',
+      'Pasaje de voz a texto en servidores externos sin exigir potencia en tu celular',
+      'Pensado para clínicas con gran volumen diario de consultas',
     ],
   },
 ];
@@ -249,17 +252,17 @@ export function evaluateSubscriptionStatus(
       ? 'Finalizó tu prueba gratuita de 7 días'
       : `Venció la vigencia de ${tierLabel}`;
     description =
-      'Tus historias clínicas, odontogramas y pacientes siguen guardados de forma segura. Informá tu transferencia bancaria para renovar o activar el plan.';
+      'Tus historias clínicas, odontogramas y pacientes siguen guardados de forma segura. Informá tu transferencia en USD para renovar o activar el plan.';
   } else if (alertLevel === 'critical') {
     headline =
       hoursRemaining <= 24
         ? `Atención: ${targetPlanForCopy} vence en ${hoursRemaining} h (${formattedDate})`
         : `Atención: ${targetPlanForCopy} vence mañana (${formattedDate})`;
     description =
-      'Realizá e informá tu transferencia bancaria para evitar interrupciones en la agenda y el registro clínico.';
+      'Realizá e informá tu transferencia bancaria en USD para evitar interrupciones en la agenda y el registro clínico.';
   } else if (alertLevel === 'warning') {
     headline = `Aviso de vencimiento: quedan ${daysRemaining} ${daysRemaining === 1 ? 'día' : 'días'} en ${targetPlanForCopy}`;
-    description = `Vigencia hasta el ${formattedDate}. Podés renovar por transferencia bancaria con descuento trimestral (-15%) o anual (-25%).`;
+    description = `Vigencia hasta el ${formattedDate}. Podés renovar por transferencia en USD con descuento trimestral (-15%) o anual (-25%).`;
   } else {
     headline = `${tierLabel} activo · ${daysRemaining} ${daysRemaining === 1 ? 'día restante' : 'días restantes'}`;
     description = `Vigencia actual hasta el ${formattedDate} (${getCycleDisplayLabel(sub.billingCycle)}).`;
@@ -284,9 +287,9 @@ export function evaluateSubscriptionStatus(
 export const URUGUAY_BANK_TRANSFER_INFO = {
   beneficiary: 'OdontoHelper Uruguay',
   banks: [
-    { name: 'BROU (Banco República)', detail: 'Caja de Ahorros USD · Solicitar número al confirmar' },
-    { name: 'Santander / Itaú / BBVA Uruguay', detail: 'Transferencia en USD o equivalente en $ UYU al tipo de cambio del día' },
-    { name: 'Prex / OCA Blue', detail: 'Transferencia directa sin comisión interbancaria' },
+    { name: 'BROU (Banco República)', detail: 'Caja de Ahorros en USD · Solicitar número al confirmar' },
+    { name: 'Santander / Itaú / BBVA Uruguay', detail: 'Transferencia bancaria exclusivamente en dólares (USD)' },
+    { name: 'Prex / OCA Blue', detail: 'Transferencia directa en USD sin comisiones de tarjeta' },
   ],
   whatsappNumber: '59899000000',
 };

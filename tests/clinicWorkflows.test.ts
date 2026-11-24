@@ -29,7 +29,6 @@ import {
   patientRepo,
   professionalRepo,
   providerRepo,
-  sessionRepo,
   treatmentPlanRepo,
   useAppStore,
 } from '../src/store/useAppStore';
