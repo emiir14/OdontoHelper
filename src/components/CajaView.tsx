@@ -340,6 +340,39 @@ export const CajaView: React.FC = () => {
 
   const movementColumns: DataTableColumn<FinancialTransaction>[] = [
     {
+      id: 'actions',
+      label: 'Acciones',
+      align: 'left',
+      sortable: false,
+      headerClassName: 'no-print w-px whitespace-nowrap',
+      cellClassName: 'no-print w-px whitespace-nowrap',
+      render: (tx) => (
+        <Button
+          variant="icon"
+          size="xs"
+          className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+          onClick={() =>
+            openConfirm({
+              title: '¿Anular movimiento?',
+              description: `Se eliminará "${tx.concept}" (${formatMoney(
+                tx.amount,
+                activeCurrency,
+                showCurrencyCode
+              )}).`,
+              confirmText: 'Anular',
+              cancelText: 'Cancelar',
+              isDestructive: true,
+              onConfirm: () => deleteFinancialTransaction(tx.id),
+            })
+          }
+          title="Anular movimiento"
+          aria-label="Anular movimiento"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
+      ),
+    },
+    {
       id: 'date',
       label: 'Fecha',
       sortValue: (tx) => tx.date,
@@ -416,78 +449,16 @@ export const CajaView: React.FC = () => {
         </span>
       ),
     },
-    {
-      id: 'actions',
-      label: 'Acción',
-      align: 'right',
-      sortable: false,
-      headerClassName: 'no-print',
-      cellClassName: 'no-print',
-      render: (tx) => (
-        <Button
-          variant="icon"
-          size="xs"
-          className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-          onClick={() =>
-            openConfirm({
-              title: '¿Anular movimiento?',
-              description: `Se eliminará "${tx.concept}" (${formatMoney(
-                tx.amount,
-                activeCurrency,
-                showCurrencyCode
-              )}).`,
-              confirmText: 'Anular',
-              cancelText: 'Cancelar',
-              isDestructive: true,
-              onConfirm: () => deleteFinancialTransaction(tx.id),
-            })
-          }
-          title="Anular movimiento"
-          aria-label="Anular movimiento"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </Button>
-      ),
-    },
   ];
 
   const debtorColumns: DataTableColumn<DebtorRow>[] = [
     {
-      id: 'fullName',
-      label: 'Paciente',
-      sortValue: (row) => row.patient.fullName,
-      render: (row) => (
-        <span className="font-semibold text-slate-900 dark:text-slate-100">
-          {row.patient.fullName}
-        </span>
-      ),
-    },
-    {
-      id: 'contact',
-      label: 'Contacto',
-      sortValue: (row) => row.patient.phone || row.patient.email || '',
-      render: (row) => (
-        <span className="text-slate-500 font-mono tabular-nums">
-          {row.patient.phone || row.patient.email || 'Sin contacto'}
-        </span>
-      ),
-    },
-    {
-      id: 'balance',
-      label: formatCurrencyHeading('Saldo', activeCurrency, showCurrencyCode),
-      align: 'right',
-      sortValue: (row) => row.bal.balance,
-      render: (row) => (
-        <span className="font-mono tabular-nums font-bold text-rose-700 dark:text-rose-400 whitespace-nowrap">
-          {formatMoney(row.bal.balance, activeCurrency, showCurrencyCode)}
-        </span>
-      ),
-    },
-    {
       id: 'actions',
-      label: 'Recordatorio / Ficha',
-      align: 'right',
+      label: 'Acciones',
+      align: 'left',
       sortable: false,
+      headerClassName: 'w-px whitespace-nowrap',
+      cellClassName: 'whitespace-nowrap',
       render: ({ patient, bal }) => {
         const formattedDebt = formatMoney(bal.balance, activeCurrency, showCurrencyCode);
         const reminderText = `Hola ${patient.fullName}, te recordamos desde nuestro consultorio que registrás un saldo pendiente de ${formattedDebt}. ¡Muchas gracias!`;
@@ -498,7 +469,7 @@ export const CajaView: React.FC = () => {
           reminderText
         );
         return (
-          <div className="inline-flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+          <div className="inline-flex flex-wrap items-center justify-start gap-1.5 sm:gap-2">
             {wa && (
               <a
                 href={wa}
@@ -532,6 +503,37 @@ export const CajaView: React.FC = () => {
           </div>
         );
       },
+    },
+    {
+      id: 'fullName',
+      label: 'Paciente',
+      sortValue: (row) => row.patient.fullName,
+      render: (row) => (
+        <span className="font-semibold text-slate-900 dark:text-slate-100">
+          {row.patient.fullName}
+        </span>
+      ),
+    },
+    {
+      id: 'contact',
+      label: 'Contacto',
+      sortValue: (row) => row.patient.phone || row.patient.email || '',
+      render: (row) => (
+        <span className="text-slate-500 font-mono tabular-nums">
+          {row.patient.phone || row.patient.email || 'Sin contacto'}
+        </span>
+      ),
+    },
+    {
+      id: 'balance',
+      label: formatCurrencyHeading('Saldo', activeCurrency, showCurrencyCode),
+      align: 'right',
+      sortValue: (row) => row.bal.balance,
+      render: (row) => (
+        <span className="font-mono tabular-nums font-bold text-rose-700 dark:text-rose-400 whitespace-nowrap">
+          {formatMoney(row.bal.balance, activeCurrency, showCurrencyCode)}
+        </span>
+      ),
     },
   ];
 

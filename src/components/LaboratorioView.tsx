@@ -100,6 +100,60 @@ export const LaboratorioView: React.FC = () => {
 
   const columns: DataTableColumn<LabOrder>[] = [
     {
+      id: 'actions',
+      label: 'Acciones',
+      align: 'left',
+      sortable: false,
+      headerClassName: 'w-px whitespace-nowrap',
+      cellClassName: 'w-px whitespace-nowrap',
+      render: (o) => (
+        <div
+          className="inline-flex items-center justify-start gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Button
+            variant="icon"
+            size="xs"
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            onClick={() => setViewingOrderId(o.id)}
+            title="Ver detalle"
+            aria-label={`Ver detalle de ${o.workType} de ${o.patientName}`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="icon"
+            size="xs"
+            className="text-slate-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+            onClick={() => setEditingOrder(o)}
+            title="Editar orden"
+            aria-label={`Editar orden ${o.workType} de ${o.patientName}`}
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="icon"
+            size="xs"
+            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+            onClick={() =>
+              openConfirm({
+                title: '¿Eliminar orden de laboratorio?',
+                description: `Se eliminará "${o.workType}" de ${o.patientName}.`,
+                confirmText: 'Eliminar',
+                cancelText: 'Cancelar',
+                isDestructive: true,
+                onConfirm: () => deleteLabOrder(o.id),
+              })
+            }
+            title="Eliminar orden"
+            aria-label={`Eliminar orden ${o.workType} de ${o.patientName}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      ),
+    },
+    {
       id: 'patientName',
       label: 'Paciente',
       sortValue: (o) => o.patientName,
@@ -201,58 +255,6 @@ export const LaboratorioView: React.FC = () => {
           </select>
         );
       },
-    },
-    {
-      id: 'actions',
-      label: 'Acciones',
-      align: 'right',
-      sortable: false,
-      render: (o) => (
-        <div
-          className="inline-flex flex-wrap items-center justify-end gap-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Button
-            variant="icon"
-            size="xs"
-            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            onClick={() => setViewingOrderId(o.id)}
-            title="Ver detalle"
-            aria-label={`Ver detalle de ${o.workType} de ${o.patientName}`}
-          >
-            <Eye className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="icon"
-            size="xs"
-            className="text-slate-400 hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/40"
-            onClick={() => setEditingOrder(o)}
-            title="Editar orden"
-            aria-label={`Editar orden ${o.workType} de ${o.patientName}`}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="icon"
-            size="xs"
-            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-            onClick={() =>
-              openConfirm({
-                title: '¿Eliminar orden de laboratorio?',
-                description: `Se eliminará "${o.workType}" de ${o.patientName}.`,
-                confirmText: 'Eliminar',
-                cancelText: 'Cancelar',
-                isDestructive: true,
-                onConfirm: () => deleteLabOrder(o.id),
-              })
-            }
-            title="Eliminar orden"
-            aria-label={`Eliminar orden ${o.workType} de ${o.patientName}`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      ),
     },
   ];
 

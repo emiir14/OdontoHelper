@@ -172,6 +172,61 @@ export const ManageProvidersView: React.FC = () => {
 
   const columns: DataTableColumn<Provider>[] = [
     {
+      id: 'actions',
+      label: 'Acciones',
+      align: 'left',
+      sortable: false,
+      headerClassName: 'w-px whitespace-nowrap',
+      cellClassName: 'w-px whitespace-nowrap',
+      render: (pr) => (
+        <div
+          className="flex items-center justify-start gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Button
+            variant="icon"
+            size="xs"
+            onClick={() => setViewingProviderId(pr.id)}
+            title="Ver ficha del proveedor"
+            aria-label="Ver ficha del proveedor"
+          >
+            <Eye className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="icon"
+            size="xs"
+            onClick={() => startEditProvider(pr.id)}
+            title="Editar proveedor"
+            aria-label="Editar proveedor"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="icon"
+            size="xs"
+            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+            onClick={() =>
+              openConfirm({
+                title: '¿Eliminar proveedor?',
+                description: `Se eliminará "${pr.name}" del directorio de proveedores.`,
+                confirmText: 'Eliminar',
+                cancelText: 'Cancelar',
+                isDestructive: true,
+                onConfirm: () => {
+                  if (viewingProviderId === pr.id) setViewingProviderId(null);
+                  return deleteProvider(pr.id);
+                },
+              })
+            }
+            title="Eliminar proveedor"
+            aria-label="Eliminar proveedor"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      ),
+    },
+    {
       id: 'name',
       label: 'Proveedor / Razón social',
       sortValue: (pr) => pr.name,
@@ -218,59 +273,6 @@ export const ManageProvidersView: React.FC = () => {
       sortValue: (pr) => pr.specialtyOrProducts || pr.paymentTerms || '',
       cellClassName: 'max-w-xs truncate text-slate-500 dark:text-slate-400',
       render: (pr) => pr.specialtyOrProducts || pr.paymentTerms || '—',
-    },
-    {
-      id: 'actions',
-      label: 'Acciones',
-      align: 'right',
-      sortable: false,
-      render: (pr) => (
-        <div
-          className="flex items-center justify-end gap-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Button
-            variant="icon"
-            size="xs"
-            onClick={() => setViewingProviderId(pr.id)}
-            title="Ver ficha del proveedor"
-            aria-label="Ver ficha del proveedor"
-          >
-            <Eye className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="icon"
-            size="xs"
-            onClick={() => startEditProvider(pr.id)}
-            title="Editar proveedor"
-            aria-label="Editar proveedor"
-          >
-            <Edit2 className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="icon"
-            size="xs"
-            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-            onClick={() =>
-              openConfirm({
-                title: '¿Eliminar proveedor?',
-                description: `Se eliminará "${pr.name}" del directorio de proveedores.`,
-                confirmText: 'Eliminar',
-                cancelText: 'Cancelar',
-                isDestructive: true,
-                onConfirm: () => {
-                  if (viewingProviderId === pr.id) setViewingProviderId(null);
-                  return deleteProvider(pr.id);
-                },
-              })
-            }
-            title="Eliminar proveedor"
-            aria-label="Eliminar proveedor"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      ),
     },
   ];
 

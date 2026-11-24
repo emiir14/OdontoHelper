@@ -427,7 +427,9 @@ export const SettingsView: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold tabular-nums">{subEval.headline}</span>
                 <span className="text-[11px] font-mono font-semibold">
-                  {subEval.tierLabel} · {getCycleDisplayLabel(subEval.billingCycle)}
+                  {subEval.isIndefinite
+                    ? `${subEval.tierLabel} · Indefinido`
+                    : `${subEval.tierLabel} · ${getCycleDisplayLabel(subEval.billingCycle)}`}
                 </span>
               </div>
               <p className="text-[11px] opacity-85 leading-relaxed">{subEval.description}</p>

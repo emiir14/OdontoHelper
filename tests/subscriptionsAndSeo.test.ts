@@ -140,6 +140,82 @@ describe('Subscriptions, 7-Day Trial & All-Tier Expiration Alerts', () => {
     expect(CLOUD_AUDIO_FAIR_USE_BYTES).toBe(20 * 1024 * 1024 * 1024);
     expect(CLOUD_AUDIO_TARGET_BITRATE_BPS).toBe(24_000);
   });
+
+  it('keeps Dr. Test (drtest) on an indefinite base plan that never expires', async () => {
+    const { clearTestAuthSession, signInWithTestCredentials } = await import(
+      '../src/core/auth/testAuth'
+    );
+    const { getOrCreateLocalSubscription } = await import(
+      '../src/core/clinic/localSubscriptionStore'
+    );
+
+    const store: Record<string, string> = {};
+    const origWindow = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = {
+      localStorage: {
+        getItem: (k: string) => store[k] ?? null,
+        setItem: (k: string, v: string) => {
+          store[k] = v;
+        },
+        removeItem: (k: string) => {
+          delete store[k];
+        },
+      },
+    };
+
+    try {
+      clearTestAuthSession();
+      // Simulate an old expired trial cached before drtest sign-in
+      const past = Date.now() - 30 * DAY_MS;
+      store['odontohelper_local_subscription_ws_local_consultorio_1'] = JSON.stringify({
+        workspaceId: 'ws_local_consultorio_1',
+        planTier: 'trial',
+        billingCycle: 'monthly',
+        status: 'expired',
+        trialStartsAt: past - 7 * DAY_MS,
+        trialEndsAt: past,
+        lastPaymentMethod: 'bank_transfer',
+        createdAt: past,
+        updatedAt: past,
+      });
+
+      expect(signInWithTestCredentials('drtest', 'test')).toBe(true);
+      const drTestSub = getOrCreateLocalSubscription('ws_local_consultorio_1');
+      expect(drTestSub.planTier).toBe('base');
+      expect(drTestSub.status).toBe('active');
+      expect(drTestSub.isIndefinite).toBe(true);
+      expect(drTestSub.currentPeriodEnd).toBeUndefined();
+
+      // Even 10 years after trialEndsAt, Dr. Test's base plan remains active & never expires
+      const tenYearsLater = Date.now() + 3650 * DAY_MS;
+      const evalResult = evaluateSubscriptionStatus(drTestSub, tenYearsLater);
+      expect(evalResult.tier).toBe('base');
+      expect(evalResult.isIndefinite).toBe(true);
+      expect(evalResult.isExpired).toBe(false);
+      expect(evalResult.alertLevel).toBe('ok');
+      expect(evalResult.headline).toContain('Sin vencimiento');
+
+      // Also supports Supabase active base rows where currentPeriodEnd is null/undefined
+      const supaIndefinite: WorkspaceSubscription = {
+        workspaceId: 'ws_supa_test',
+        planTier: 'base',
+        billingCycle: 'annual',
+        status: 'active',
+        trialStartsAt: past - 7 * DAY_MS,
+        trialEndsAt: past,
+        currentPeriodEnd: undefined,
+        lastPaymentMethod: 'bank_transfer',
+        createdAt: past,
+        updatedAt: past,
+      };
+      const evalSupa = evaluateSubscriptionStatus(supaIndefinite, tenYearsLater);
+      expect(evalSupa.isIndefinite).toBe(true);
+      expect(evalSupa.isExpired).toBe(false);
+      expect(evalSupa.alertLevel).toBe('ok');
+    } finally {
+      (globalThis as { window?: unknown }).window = origWindow;
+    }
+  });
 });
 
 describe('Public Marketing Routes & Uruguay SEO Metadata', () => {

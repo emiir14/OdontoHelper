@@ -890,28 +890,60 @@ export const AlternatingModuleShowcases: React.FC = () => {
         <div className="lg:col-span-7">
           <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-5 sm:p-6 shadow-md space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs font-bold text-slate-900 dark:text-white">
                   Ficha clínica · Lucía Méndez
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Hacé clic en una pieza para cambiar su estado o probá la vista de colega
+                  {colleagueView
+                    ? 'Vista que recibe el colega derivado · Presupuestos y caja ocultos'
+                    : 'Vista completa de tu consultorio · Hacé clic en una pieza para editar'}
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setColleagueView((v) => !v)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
-                  colleagueView
-                    ? 'bg-teal-600 text-white border-teal-700'
-                    : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
-                }`}
+              <div
+                role="tablist"
+                aria-label="Comparar vista de tu consultorio y enlace para colega"
+                className="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 shrink-0"
               >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>{colleagueView ? 'Vista colega (sin importes)' : 'Simular enlace colega'}</span>
-              </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!colleagueView}
+                  onClick={() => setColleagueView(false)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    !colleagueView
+                      ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Tu consultorio
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={colleagueView}
+                  onClick={() => setColleagueView(true)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    colleagueView
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Share2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>Vista del colega</span>
+                </button>
+              </div>
             </div>
+
+            {colleagueView && (
+              <div className="p-3 rounded-2xl bg-teal-50/75 dark:bg-teal-950/35 border border-teal-200/80 dark:border-teal-800/60 flex items-start gap-2.5 text-xs text-teal-900 dark:text-teal-100">
+                <Share2 className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <strong>Enlace de derivación activo</strong> · El especialista accede en tiempo real al odontograma, evoluciones y radiografías, pero no ve aranceles ni movimientos de caja.
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
               {['16', '14', '11', '21', '36', '46'].map((fdi) => {
@@ -939,24 +971,50 @@ export const AlternatingModuleShowcases: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                <div className="font-bold text-slate-900 dark:text-white">
-                  Evolución clínica compartida
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Evolución clínica compartida
+                  </span>
+                  <span className="text-[11px] font-medium text-teal-700 dark:text-teal-300 whitespace-nowrap">
+                    {colleagueView ? 'Visible · Solo lectura' : 'Editable'}
+                  </span>
                 </div>
-                <p className="text-slate-600 dark:text-slate-300">
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
                   Endodoncia mecanizada pieza 36 + radiografía periapical adjunta.
                 </p>
               </div>
-              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                <div className="flex items-center justify-between">
+              <div
+                className={`p-3.5 rounded-2xl border space-y-1.5 transition-colors ${
+                  colleagueView
+                    ? 'bg-slate-100/85 dark:bg-slate-950/85 border-dashed border-slate-300 dark:border-slate-700'
+                    : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200/80 dark:border-slate-800'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
                   <span className="font-bold text-slate-900 dark:text-white">
                     Presupuestos y caja
                   </span>
-                  {colleagueView && <Lock className="w-3.5 h-3.5 text-teal-600" />}
+                  {colleagueView ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                      <Lock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                      <span>Bloqueado</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300 whitespace-nowrap">
+                      Solo tu consultorio
+                    </span>
+                  )}
                 </div>
-                <p className="font-mono font-bold tabular-nums text-slate-800 dark:text-slate-100">
-                  {colleagueView ? 'Oculto al especialista externo' : '$ 18.500 UYU · Al día'}
-                </p>
+                {colleagueView ? (
+                  <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Privado de tu consultorio. El colega no ve presupuestos, aranceles ni cobros.
+                  </p>
+                ) : (
+                  <p className="font-mono font-bold tabular-nums text-slate-800 dark:text-slate-100">
+                    $ 18.500 UYU · Al día
+                  </p>
+                )}
               </div>
             </div>
           </div>

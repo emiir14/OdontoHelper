@@ -184,6 +184,7 @@ export interface SubscriptionEvaluation {
   tierLabel: string;
   billingCycle: SubscriptionBillingCycle;
   isTrial: boolean;
+  isIndefinite: boolean;
   isExpired: boolean;
   expiresAt: number;
   msRemaining: number;
@@ -205,6 +206,7 @@ export function evaluateSubscriptionStatus(
       tierLabel: getTierDisplayLabel('trial'),
       billingCycle: 'monthly',
       isTrial: true,
+      isIndefinite: false,
       isExpired: false,
       expiresAt: fallbackEnd,
       msRemaining: FREE_TRIAL_DAYS * DAY_MS,
@@ -219,6 +221,28 @@ export function evaluateSubscriptionStatus(
   const tier = sub.planTier;
   const tierLabel = getTierDisplayLabel(tier);
   const isTrial = tier === 'trial';
+  const isIndefinite = Boolean(
+    sub.isIndefinite || (!isTrial && sub.status === 'active' && sub.currentPeriodEnd == null)
+  );
+
+  if (isIndefinite) {
+    return {
+      tier,
+      tierLabel,
+      billingCycle: sub.billingCycle,
+      isTrial: false,
+      isIndefinite: true,
+      isExpired: false,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      msRemaining: Number.MAX_SAFE_INTEGER,
+      daysRemaining: Number.MAX_SAFE_INTEGER,
+      hoursRemaining: Number.MAX_SAFE_INTEGER,
+      alertLevel: 'ok',
+      headline: `${tierLabel} activo · Sin vencimiento`,
+      description: 'Acceso completo habilitado de forma indefinida para este consultorio.',
+    };
+  }
+
   const expiresAt = isTrial
     ? sub.trialEndsAt
     : sub.currentPeriodEnd ?? sub.trialEndsAt;
@@ -273,6 +297,7 @@ export function evaluateSubscriptionStatus(
     tierLabel,
     billingCycle: sub.billingCycle,
     isTrial,
+    isIndefinite: false,
     isExpired,
     expiresAt,
     msRemaining,

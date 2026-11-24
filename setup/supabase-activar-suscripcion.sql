@@ -108,17 +108,45 @@ select
   s.plan_tier,
   s.billing_cycle,
   s.status,
-  to_timestamp(
-    case when s.plan_tier = 'trial' then s.trial_ends_at else coalesce(s.current_period_end, s.trial_ends_at) end / 1000.0
-  ) as vence_el,
-  round(
-    (
-      (case when s.plan_tier = 'trial' then s.trial_ends_at else coalesce(s.current_period_end, s.trial_ends_at) end)
-      - (extract(epoch from now()) * 1000)
-    ) / 86400000.0,
-    1
-  ) as dias_restantes
+  case
+    when s.plan_tier <> 'trial' and s.status = 'active' and s.current_period_end is null then null
+    else to_timestamp(
+      case when s.plan_tier = 'trial' then s.trial_ends_at else coalesce(s.current_period_end, s.trial_ends_at) end / 1000.0
+    )
+  end as vence_el,
+  case
+    when s.plan_tier <> 'trial' and s.status = 'active' and s.current_period_end is null then null
+    else round(
+      (
+        (case when s.plan_tier = 'trial' then s.trial_ends_at else coalesce(s.current_period_end, s.trial_ends_at) end)
+        - (extract(epoch from now()) * 1000)
+      ) / 86400000.0,
+      1
+    )
+  end as dias_restantes
 from public.workspace_subscriptions s
 join public.workspaces w on w.id = s.workspace_id
 left join auth.users u on u.id = w.owner_id
-order by dias_restantes asc;
+order by dias_restantes asc nulls last;
+
+-- ----------------------------------------------------------------------------
+-- 4. (Opcional) Otorgar Plan Profesional (base) indefinido en Supabase
+-- ----------------------------------------------------------------------------
+-- Si además tenés un usuario de prueba en Supabase (por ejemplo Dr. Test),
+-- dejá current_period_end = null con plan_tier = 'base' y status = 'active'.
+-- ----------------------------------------------------------------------------
+/*
+update public.workspace_subscriptions s
+set plan_tier = 'base',
+    billing_cycle = 'annual',
+    status = 'active',
+    current_period_start = coalesce(s.current_period_start, (extract(epoch from now()) * 1000)::bigint),
+    current_period_end = null,
+    pending_transfer_id = null,
+    notes = 'Plan Profesional indefinido',
+    updated_at = (extract(epoch from now()) * 1000)::bigint
+from public.workspaces w
+left join auth.users u on u.id = w.owner_id
+where w.id = s.workspace_id
+  and u.email = 'email-de-prueba@ejemplo.com';
+*/

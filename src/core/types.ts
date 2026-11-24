@@ -638,6 +638,7 @@ export interface WorkspaceSubscription {
   trialEndsAt: number;
   currentPeriodStart?: number;
   currentPeriodEnd?: number;
+  isIndefinite?: boolean;
   lastPaymentMethod: 'bank_transfer';
   pendingTransferId?: string;
   notes?: string;

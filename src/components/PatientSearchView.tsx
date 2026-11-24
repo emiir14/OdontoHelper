@@ -626,6 +626,63 @@ export const PatientSearchView: React.FC = () => {
 
   const tableColumns: DataTableColumn<Patient>[] = [
     {
+      id: 'actions',
+      label: 'Acciones',
+      align: 'left',
+      sortable: false,
+      headerClassName: 'w-px whitespace-nowrap',
+      cellClassName: 'w-px whitespace-nowrap',
+      render: (p) => {
+        const isForeign = Boolean(workspace && p.workspaceId !== workspace.id);
+        return (
+          <div className="flex items-center justify-start gap-1">
+            <Button
+              variant="icon"
+              size="xs"
+              onClick={() => selectPatient(p.id)}
+              title="Abrir historia clínica"
+              aria-label="Abrir historia clínica"
+              className="hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/40"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Button>
+            {!isForeign && (
+              <>
+                <Button
+                  variant="icon"
+                  size="xs"
+                  onClick={() => startEditPatient(p.id)}
+                  title="Editar paciente"
+                  aria-label="Editar paciente"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="icon"
+                  size="xs"
+                  onClick={() =>
+                    openConfirm({
+                      title: '¿Eliminar paciente?',
+                      description: `Se eliminará la ficha de "${p.fullName}" del padrón activo.`,
+                      confirmText: 'Eliminar',
+                      cancelText: 'Cancelar',
+                      isDestructive: true,
+                      onConfirm: () => deletePatient(p.id),
+                    })
+                  }
+                  title="Eliminar paciente"
+                  aria-label="Eliminar paciente"
+                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       id: 'fullName',
       label: 'Paciente',
       sortValue: (p) => p.fullName,
@@ -683,61 +740,6 @@ export const PatientSearchView: React.FC = () => {
       sortValue: (p) => p.allergies || p.chiefComplaint || '',
       cellClassName: 'max-w-xs truncate text-slate-500 dark:text-slate-400',
       render: (p) => p.allergies || p.chiefComplaint || '—',
-    },
-    {
-      id: 'actions',
-      label: 'Acciones',
-      align: 'right',
-      sortable: false,
-      render: (p) => {
-        const isForeign = Boolean(workspace && p.workspaceId !== workspace.id);
-        return (
-          <div className="flex items-center justify-end gap-1">
-            <Button
-              variant="icon"
-              size="xs"
-              onClick={() => selectPatient(p.id)}
-              title="Abrir historia clínica"
-              aria-label="Abrir historia clínica"
-              className="hover:text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/40"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </Button>
-            {!isForeign && (
-              <>
-                <Button
-                  variant="icon"
-                  size="xs"
-                  onClick={() => startEditPatient(p.id)}
-                  title="Editar paciente"
-                  aria-label="Editar paciente"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="icon"
-                  size="xs"
-                  onClick={() =>
-                    openConfirm({
-                      title: '¿Eliminar paciente?',
-                      description: `Se eliminará la ficha de "${p.fullName}" del padrón activo.`,
-                      confirmText: 'Eliminar',
-                      cancelText: 'Cancelar',
-                      isDestructive: true,
-                      onConfirm: () => deletePatient(p.id),
-                    })
-                  }
-                  title="Eliminar paciente"
-                  aria-label="Eliminar paciente"
-                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </>
-            )}
-          </div>
-        );
-      },
     },
   ];
 
@@ -2125,6 +2127,34 @@ export const PatientSearchView: React.FC = () => {
                         columns={
                           [
                             {
+                              id: 'actions',
+                              label: 'Acciones',
+                              align: 'left',
+                              sortable: false,
+                              headerClassName: 'no-print w-px whitespace-nowrap',
+                              cellClassName: 'no-print w-px whitespace-nowrap',
+                              render: ({ tx }) => (
+                                <Button
+                                  variant="icon"
+                                  size="xs"
+                                  onClick={() =>
+                                    openConfirm({
+                                      title: '¿Anular movimiento?',
+                                      description: `Se eliminará "${tx.concept}" de la cuenta corriente.`,
+                                      confirmText: 'Anular',
+                                      cancelText: 'Cancelar',
+                                      isDestructive: true,
+                                      onConfirm: () => deleteFinancialTransaction(tx.id),
+                                    })
+                                  }
+                                  aria-label="Anular movimiento"
+                                  className="hover:!text-rose-600"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              ),
+                            },
+                            {
                               id: 'date',
                               label: 'Fecha',
                               sortValue: ({ tx }) => tx.date,
@@ -2185,34 +2215,6 @@ export const PatientSearchView: React.FC = () => {
                                 'font-mono tabular-nums font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap',
                               render: ({ runningBalance }) =>
                                 formatMoney(runningBalance, activeCurrency, showCurrencyCode),
-                            },
-                            {
-                              id: 'actions',
-                              label: 'Acción',
-                              align: 'right',
-                              sortable: false,
-                              headerClassName: 'no-print',
-                              cellClassName: 'no-print',
-                              render: ({ tx }) => (
-                                <Button
-                                  variant="icon"
-                                  size="xs"
-                                  onClick={() =>
-                                    openConfirm({
-                                      title: '¿Anular movimiento?',
-                                      description: `Se eliminará "${tx.concept}" de la cuenta corriente.`,
-                                      confirmText: 'Anular',
-                                      cancelText: 'Cancelar',
-                                      isDestructive: true,
-                                      onConfirm: () => deleteFinancialTransaction(tx.id),
-                                    })
-                                  }
-                                  aria-label="Anular movimiento"
-                                  className="hover:!text-rose-600"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              ),
                             },
                           ] satisfies DataTableColumn<(typeof transactionsWithRunningBalance)[number]>[]
                         }

@@ -27,7 +27,8 @@ Podés usar `/.env.example` como plantilla.
 | `VITE_SUPABASE_URL` | Supabase → **Project Settings → API → Project URL** | Conexión a Auth, Postgres y Storage | Sí (`VITE_*` es público, protegido por RLS) |
 | `VITE_SUPABASE_ANON_KEY` | Supabase → **Project Settings → API → `anon` `public` key** | Clave pública anónima de Supabase | Sí (segura con RLS estricto habilitado) |
 | `VITE_GITHUB_REPO` | Tu repo en formato `usuario/repo` (ej. `emiir14/LocalTrans`) | Descargas opcionales desktop/APK | Sí |
-| `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID` | Firebase Console → **Project Settings → Your apps (Web)** | Google Calendar OAuth por profesional (opcional; nunca commitear `firebase-applet-config.json` a Git) | Sí (restringir por dominio en Google Cloud) |
+| `VITE_FIREBASE_API_KEY` | Google Cloud Console → **APIs y servicios → Credenciales** (tu clave web restringida) | Clave pública web para Google Calendar OAuth (nunca commitear en Git ni en `firebase-applet-config.json`) | Sí (restringida por dominio y APIs) |
+| `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Firebase Console → **Project Settings → Your apps (Web)** | Identificadores públicos del proyecto Firebase (`gen-lang-client-0728564052`) para OAuth en navegador | Sí (identificadores públicos) |
 
 ### B. Variables futuras para Cloudflare R2 (solo cuando implementes Plan Extra)
 
@@ -89,9 +90,15 @@ Para activar o renovar el plan:
 
 ## 4. Paso a paso para subir el proyecto a Vercel
 
-### 4.1. Preparar el repositorio
-1. Asegurate de tener todo commiteado en tu rama `main` de GitHub / GitLab / Bitbucket.
-2. Confirmá que exista `vercel.json` en la raíz del proyecto (ya incluido).
+### 4.1. Preparar el repositorio (y limpiar archivos sensibles)
+1. Asegurate de que `.gitignore` excluya `.env.local` y `firebase-applet-config.json` (ya incluidos). **Nunca subas claves de API de Google/Firebase ni archivos de credenciales al repositorio.**
+2. Si alguna vez llegaste a commitear `firebase-applet-config.json` en Git, sacalo del seguimiento antes de hacer push:
+   ```bash
+   git rm --cached firebase-applet-config.json
+   git commit -m "chore: stop tracking local firebase config"
+   ```
+   *(Si GitHub Secret Scanning disparó una alerta por una clave anterior, creá la clave nueva restringida en Google Cloud, borrá la clave expuesta anterior y cerrá la alerta en GitHub como **Revoked**).*
+3. Confirmá que exista `vercel.json` en la raíz del proyecto y subí todo a tu rama `main`.
 
 ### 4.2. Importar y configurar en Vercel
 1. Entrá a [vercel.com](https://vercel.com) → **Add New… → Project** e importá el repositorio.
@@ -102,10 +109,17 @@ Para activar o renovar el plan:
    - **Output Directory:** `dist`
    - **Install Command:** `npm install`
    - **Node.js Version:** `20.x` (en Project Settings → General).
-3. En **Environment Variables** (antes del primer Deploy):
-   - Agregá `VITE_SUPABASE_URL` (Production + Preview + Development)
-   - Agregá `VITE_SUPABASE_ANON_KEY` (Production + Preview + Development)
-   - Agregá `VITE_GITHUB_REPO` (opcional, ej. `emiir14/LocalTrans`)
+3. En **Environment Variables** (Production + Preview + Development, antes del Deploy):
+   - `VITE_SUPABASE_URL` → URL de tu proyecto Supabase.
+   - `VITE_SUPABASE_ANON_KEY` → Clave `anon public` de Supabase.
+   - `VITE_GITHUB_REPO` → *(opcional)* `usuario/repo` (ej. `emiir14/LocalTrans`).
+   - **Google Calendar OAuth (Firebase):** cargá estas 6 variables directamente en Vercel y en tu `.env.local`:
+     - `VITE_FIREBASE_API_KEY` → pegá aquí tu nueva **Clave de API restringida** desde Google Cloud Console.
+     - `VITE_FIREBASE_PROJECT_ID` → `gen-lang-client-0728564052` *(o el ID de tu proyecto Firebase)*
+     - `VITE_FIREBASE_AUTH_DOMAIN` → `gen-lang-client-0728564052.firebaseapp.com`
+     - `VITE_FIREBASE_STORAGE_BUCKET` → `gen-lang-client-0728564052.firebasestorage.app`
+     - `VITE_FIREBASE_MESSAGING_SENDER_ID` → `1004875509159`
+     - `VITE_FIREBASE_APP_ID` → `1:1004875509159:web:44872530174a074edfda82`
 4. Hacé clic en **Deploy**.
 
 ### 4.3. Qué resuelve automáticamente `vercel.json`
@@ -117,12 +131,22 @@ No necesitás configurar rewrites manuales en el panel porque `vercel.json` ya d
 
 ### 4.4. Dominio propio `.com.uy` / `.uy`, Google OAuth y SEO
 1. En **Vercel → Project → Settings → Domains**, agregá tu dominio (ej. `odontohelper.com.uy` y `www.odontohelper.com.uy`, eligiendo uno como principal con redirect 308 al otro).
-2. Para que el popup de **Google Calendar** funcione en tu dominio final de producción de forma segura:
-   - Cargá `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID` (y opcionalmente `STORAGE_BUCKET`, `MESSAGING_SENDER_ID`, `APP_ID`) en **Vercel → Environment Variables** y en `.env.local` (ambos excluidos de Git por `.gitignore`).
-   - En **Firebase Console → Authentication → Settings → Authorized domains**, agregá `tu-dominio.com.uy` y `tu-proyecto.vercel.app`.
-   - En **Google Cloud Console → APIs & Services → Credentials → tu Browser API Key**, configurá:
-     - **Application restrictions → Websites**: permití solo `https://tu-dominio.com.uy/*`, `https://tu-proyecto.vercel.app/*` y `http://localhost:3000/*`.
-     - **API restrictions → Restrict key**: habilitá únicamente **Identity Toolkit API**, **Token Service API** y **Google Calendar API** (nunca dejes habilitadas APIs de pago como Gemini sobre la clave pública web).
+2. Para crear, rotar y asegurar la clave de **Google Calendar OAuth**:
+   - Entrá a [Google Cloud Console → Credenciales](https://console.cloud.google.com/apis/credentials) y seleccioná el proyecto por su **ID** (`gen-lang-client-0728564052`; puede mostrarse con su nombre visible, por ej. `DemoChatBot`).
+   - Hacé clic en **+ Crear credenciales → Clave de API** (ej. `OdontoHelper Calendar Web`).
+   - En **Elige las restricciones de API → Restringir clave**, marcá únicamente estas 3 APIs:
+     - **Identity Toolkit API**
+     - **Token Service API**
+     - **Google Calendar API**
+     *(Nunca habilites APIs de pago como Gemini API sobre una clave web).*
+   - En **Restricciones de aplicaciones → Sitios web**, agregá solo tus orígenes autorizados:
+     - `https://tu-dominio.com.uy/*`
+     - `https://tu-proyecto.vercel.app/*`
+     - `http://localhost:3000/*`
+     - *(Opcional solo mientras probás en preview de AI Studio: `https://*.run.app/*`)*
+   - Copiá esa clave en **Vercel → Environment Variables → `VITE_FIREBASE_API_KEY`** (y en `.env.local` para desarrollo) y hacé Redeploy.
+   - Si estabas reemplazando una clave auto-generada expuesta (ej. `Browser key (auto created by Firebase)`), borrá **solo esa clave vieja** desde los tres puntos (`⋮`) → *Eliminar*. **No borres** claves de otros proyectos (ej. Gemini API), ni el **Web client (auto created by Google Service)** en OAuth 2.0, ni las **Cuentas de servicio**.
+   - Por último, en **Firebase Console → Authentication → Settings → Authorized domains**, agregá `tu-dominio.com.uy` y `tu-proyecto.vercel.app`.
 3. Si tu dominio final difiere de `https://odontohelper.com.uy`, actualizá:
    - `CANONICAL_ORIGIN` en `src/core/seo/seoManager.ts`
    - `public/sitemap.xml` y `public/robots.txt`
