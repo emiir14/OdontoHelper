@@ -42,15 +42,16 @@ const mainActivityDir = path.join(
   'src',
   'main',
   'java',
+  'uy',
   'com',
-  'escriba',
+  'odontohelper',
   'desktop'
 );
 const mainActivityPath = path.join(mainActivityDir, 'MainActivity.kt');
 
 fs.mkdirSync(mainActivityDir, { recursive: true });
 
-const mainActivityKotlin = `package com.escriba.desktop
+const mainActivityKotlin = `package uy.com.odontohelper.desktop
 
 import android.Manifest
 import android.content.pm.PackageManager

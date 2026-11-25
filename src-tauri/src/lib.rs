@@ -34,14 +34,14 @@ pub fn run() {
             .plugin(tauri_plugin_opener::init())
             .manage(WhisperManager::new())
             .setup(|app| {
-                let show_item = MenuItem::with_id(app, "show", "Abrir Escriba", true, None::<&str>)?;
+                let show_item = MenuItem::with_id(app, "show", "Abrir OdontoHelper", true, None::<&str>)?;
                 let quit_item =
                     MenuItem::with_id(app, "quit", "Salir completamente", true, None::<&str>)?;
                 let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
                 let mut tray_builder = TrayIconBuilder::new()
                     .menu(&tray_menu)
-                    .tooltip("Escriba — Transcripción Local")
+                    .tooltip("OdontoHelper — Consultorio Odontológico")
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "quit" => {
@@ -95,7 +95,7 @@ pub fn run() {
                 updater::download_and_open_update,
             ])
             .run(tauri::generate_context!())
-            .expect("Error ejecutando Escriba Desktop");
+            .expect("Error ejecutando OdontoHelper Desktop");
     }
 
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -103,6 +103,6 @@ pub fn run() {
         tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
             .run(tauri::generate_context!())
-            .expect("Error ejecutando Escriba Mobile");
+            .expect("Error ejecutando OdontoHelper Mobile");
     }
 }

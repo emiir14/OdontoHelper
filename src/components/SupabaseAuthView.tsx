@@ -216,9 +216,9 @@ export const SupabaseAuthView: React.FC<SupabaseAuthViewProps> = ({
 
         <div className="relative z-10 max-w-md space-y-8 my-auto py-10">
           <div className="space-y-3">
-            <h2 className="text-3xl xl:text-[34px] font-bold tracking-tight leading-[1.15] text-white text-balance">
+            <p className="text-3xl xl:text-[34px] font-bold tracking-tight leading-[1.15] text-white text-balance">
               Tu consultorio odontológico, ordenado desde la primera consulta.
-            </h2>
+            </p>
             <p className="text-sm text-teal-100/75 leading-relaxed">
               Centralizá historias clínicas, odontograma, agenda, presupuestos y seguimiento financiero en una herramienta pensada para la práctica diaria en Uruguay.
             </p>

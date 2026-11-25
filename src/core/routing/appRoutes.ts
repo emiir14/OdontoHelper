@@ -72,6 +72,7 @@ export interface RouteStateInput {
 }
 
 export interface ParsedRouteState {
+  isNotFound: boolean;
   isLoginRoute: boolean;
   isSignupRoute: boolean;
   publicRoute: PublicMarketingRoute | null;
@@ -429,6 +430,7 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRouteStat
   const moduleQuery = parseModuleQueryParams(safeParams);
 
   const base: ParsedRouteState = {
+    isNotFound: false,
     isLoginRoute: false,
     isSignupRoute: false,
     publicRoute: null,
@@ -458,10 +460,11 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRouteStat
   const [first, second, third] = segments;
 
   if (
-    first === 'funciones' ||
-    first === 'dictado-por-voz' ||
-    first === 'planes' ||
-    first === 'preguntas-frecuentes'
+    !second &&
+    (first === 'funciones' ||
+      first === 'dictado-por-voz' ||
+      first === 'planes' ||
+      first === 'preguntas-frecuentes')
   ) {
     return {
       ...base,
@@ -469,7 +472,7 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRouteStat
     };
   }
 
-  if (first === 'login' || first === 'registro') {
+  if (!second && (first === 'login' || first === 'registro')) {
     return {
       ...base,
       isLoginRoute: true,
@@ -478,7 +481,7 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRouteStat
     };
   }
 
-  if (first === 'inicio') {
+  if (!second && first === 'inicio') {
     return {
       ...base,
       currentView: 'patients-search',
@@ -599,7 +602,10 @@ export function parseAppLocation(pathname: string, search = ''): ParsedRouteStat
     };
   }
 
-  return base;
+  return {
+    ...base,
+    isNotFound: true,
+  };
 }
 
 /**

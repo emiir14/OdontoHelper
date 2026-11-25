@@ -340,9 +340,9 @@ export const ReportesView: React.FC = () => {
             <div className="text-xs font-semibold uppercase tracking-wider text-teal-700">
               Reporte de Gestión
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 mt-0.5">
+            <div className="text-2xl font-bold text-slate-900 mt-0.5">
               {reportData.definition.label}
-            </h1>
+            </div>
             <p className="text-xs text-slate-600 mt-1">{reportData.definition.description}</p>
           </div>
           <div className="text-right text-[11px] text-slate-600 space-y-0.5 tabular-nums">

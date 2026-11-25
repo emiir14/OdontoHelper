@@ -126,7 +126,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setView,
     activeReportType,
     setReportType,
-    requestMicrophonePermission,
     patients,
     providers,
     appointments,
@@ -184,7 +183,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleDictateClick = () => {
     guardNavigation(() => {
-      void requestMicrophonePermission();
       setView('home');
       onCloseMobile();
     });

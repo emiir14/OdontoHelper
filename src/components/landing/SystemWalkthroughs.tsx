@@ -160,9 +160,9 @@ export const HeroMultiDeviceShowcase: React.FC = () => {
         </div>
 
         {/* App Body: Crisp Navigation + Day Schedule */}
-        <div className="grid grid-cols-12 min-h-[300px] sm:min-h-[330px]">
+        <div className="grid grid-cols-12 min-h-[280px] sm:min-h-[330px]">
           {/* Clean App Sidebar */}
-          <div className="col-span-4 sm:col-span-3 bg-[#F4F8F8] dark:bg-slate-950/60 border-r border-slate-200/80 dark:border-slate-800 p-3 flex flex-col justify-between">
+          <div className="hidden sm:flex sm:col-span-4 md:col-span-3 bg-[#F4F8F8] dark:bg-slate-950/60 border-r border-slate-200/80 dark:border-slate-800 p-3 flex-col justify-between">
             <div className="space-y-1">
               {[
                 { label: 'Dictar consulta', active: false, icon: Mic },
@@ -198,7 +198,7 @@ export const HeroMultiDeviceShowcase: React.FC = () => {
           </div>
 
           {/* Main Agenda List */}
-          <div className="col-span-8 sm:col-span-9 p-4 sm:p-5 space-y-3 bg-white dark:bg-slate-900">
+          <div className="col-span-12 sm:col-span-8 md:col-span-9 p-4 sm:p-5 space-y-3 bg-white dark:bg-slate-900">
             <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
@@ -869,9 +869,9 @@ export const AlternatingModuleShowcases: React.FC = () => {
           <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
             Historia clínica y odontograma
           </p>
-          <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
             Odontograma FDI interactivo y derivación segura a colegas
-          </h3>
+          </h2>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
             Registrá caras dentarias, periodontograma, radiografías y evoluciones ordenadas por fecha. Cuando trabajás con otro especialista, enviás un enlace por WhatsApp sin mostrar tus presupuestos ni tu caja.
           </p>
@@ -1123,9 +1123,9 @@ export const AlternatingModuleShowcases: React.FC = () => {
           <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
             Presupuestos, caja y laboratorio
           </p>
-          <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white text-balance">
             Controlá cobros en pesos uruguayos, dólares y órdenes al protesista
-          </h3>
+          </h2>
           <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed">
             Armá presupuestos claros, registrá señas o pagos en cuotas (efectivo, transferencia o POS) y verificá si la prótesis ya llegó al consultorio antes de confirmar el turno.
           </p>

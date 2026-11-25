@@ -119,7 +119,6 @@ export const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onSignedOut 
     setView,
     init,
     authRequired,
-    requestMicrophonePermission,
     isRecording,
     transcribingSessionId,
     dirtyDraftKeys,
@@ -404,7 +403,6 @@ export const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onSignedOut 
                   type="button"
                   onClick={() => {
                     guardNavigation(() => {
-                      void requestMicrophonePermission();
                       setView('home');
                     });
                   }}

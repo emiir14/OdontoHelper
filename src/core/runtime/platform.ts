@@ -164,14 +164,14 @@ export async function fetchLatestGithubRelease(
     htmlUrl: data.html_url || `https://github.com/${normalized}/releases`,
     windowsAsset: exeAsset?.browser_download_url
       ? {
-          name: exeAsset.name || 'Escriba-Setup.exe',
+          name: exeAsset.name || 'OdontoHelper-Setup.exe',
           sizeBytes: exeAsset.size || 0,
           downloadUrl: exeAsset.browser_download_url,
         }
       : null,
     androidAsset: apkAsset?.browser_download_url
       ? {
-          name: apkAsset.name || 'Escriba.apk',
+          name: apkAsset.name || 'OdontoHelper.apk',
           sizeBytes: apkAsset.size || 0,
           downloadUrl: apkAsset.browser_download_url,
         }

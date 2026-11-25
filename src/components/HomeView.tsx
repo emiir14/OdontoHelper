@@ -93,9 +93,9 @@ export const HomeView: React.FC = () => {
           <div className="flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div>
-              <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              <div className="text-sm font-semibold text-amber-900 dark:text-amber-200">
                 Grabación anterior interrumpida
-              </h2>
+              </div>
               <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
                 Se detectó una consulta que quedó abierta ({unclosedSession.reference || unclosedSession.title}).
                 Los bloques guardados están seguros en tu navegador.

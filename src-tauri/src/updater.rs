@@ -32,7 +32,7 @@ fn sanitize_installer_filename(raw: &str) -> String {
     let base = raw
         .rsplit(['/', '\\'])
         .next()
-        .unwrap_or("Escriba-Setup.exe")
+        .unwrap_or("OdontoHelper-Setup.exe")
         .trim();
     let cleaned: String = base
         .chars()
@@ -45,7 +45,7 @@ fn sanitize_installer_filename(raw: &str) -> String {
         })
         .collect();
     if cleaned.is_empty() || !cleaned.to_ascii_lowercase().ends_with(".exe") {
-        "Escriba-Setup.exe".to_string()
+        "OdontoHelper-Setup.exe".to_string()
     } else {
         cleaned
     }
@@ -77,13 +77,14 @@ pub async fn download_and_open_update(
         return Err("Solo se permiten descargas oficiales desde GitHub Releases.".to_string());
     }
 
-    let safe_name = sanitize_installer_filename(file_name.as_deref().unwrap_or("Escriba-Setup.exe"));
+    let safe_name =
+        sanitize_installer_filename(file_name.as_deref().unwrap_or("OdontoHelper-Setup.exe"));
     let target_dir = resolve_download_dir(&app)?;
     let final_path = target_dir.join(&safe_name);
     let part_path = target_dir.join(format!("{safe_name}.part"));
 
     let client = reqwest::Client::builder()
-        .user_agent("EscribaDesktopUpdater/1.0")
+        .user_agent("OdontoHelperDesktopUpdater/1.0")
         .build()
         .map_err(|e| format!("Error iniciando descarga: {e}"))?;
 

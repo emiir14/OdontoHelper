@@ -4,6 +4,8 @@ Allow: /funciones
 Allow: /dictado-por-voz
 Allow: /planes
 Allow: /preguntas-frecuentes
+Allow: /llms.txt
+Allow: /llm.txt
 
 Disallow: /login
 Disallow: /registro
@@ -20,4 +22,4 @@ Disallow: /ventana
 Disallow: /compartir
 Disallow: /api/
 
-Sitemap: /sitemap.xml
+Sitemap: https://odontohelper.com.uy/sitemap.xml

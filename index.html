@@ -2,40 +2,59 @@
 <html lang="es-UY" class="h-full">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="content-language" content="es-UY" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="referrer" content="no-referrer" />
-    <title>OdontoHelper Uruguay · Software Odontológico con Historia Clínica y Dictado por Voz</title>
+    <title>OdontoHelper Uruguay · Software Odontológico con Voz</title>
     <meta
       name="description"
-      content="Software odontológico para clínicas y consultorios en Uruguay. Historia clínica digital, odontograma FDI, agenda, caja en UYU/USD y dictado por voz local. Probá 7 días gratis."
+      content="Software odontológico en Uruguay: historia clínica digital, odontograma FDI, agenda y dictado por voz local. Probá 7 días gratis."
     />
     <meta
       name="keywords"
       content="software odontológico Uruguay, historia clínica odontológica digital, odontograma digital, dictado por voz odontología, gestión consultorio dental Montevideo, software dental Uruguay"
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://odontohelper.com.uy/" />
     <meta name="geo.region" content="UY" />
     <meta name="geo.placename" content="Montevideo, Uruguay" />
+    <meta name="geo.position" content="-34.9011;-56.1645" />
+    <meta name="ICBM" content="-34.9011, -56.1645" />
 
     <meta property="og:site_name" content="OdontoHelper" />
     <meta property="og:locale" content="es_UY" />
+    <meta property="og:url" content="https://odontohelper.com.uy/" />
     <meta
       property="og:title"
-      content="OdontoHelper Uruguay · Software Odontológico con Historia Clínica y Dictado por Voz"
+      content="OdontoHelper Uruguay · Software Odontológico con Voz"
     />
     <meta
       property="og:description"
-      content="Historia clínica digital, odontograma FDI, agenda, presupuestos, caja y dictado clínico por voz en tu equipo. 7 días de prueba gratis sin tarjeta."
+      content="Software odontológico en Uruguay: historia clínica digital, odontograma FDI, agenda y dictado por voz local. Probá 7 días gratis."
     />
     <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://odontohelper.com.uy/og-image.jpg" />
+    <meta property="og:image:secure_url" content="https://odontohelper.com.uy/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="OdontoHelper Uruguay — Historia clínica odontológica, odontograma FDI y dictado por voz"
+    />
     <meta name="twitter:card" content="summary_large_image" />
     <meta
       name="twitter:title"
-      content="OdontoHelper Uruguay · Software Odontológico con Dictado por Voz"
+      content="OdontoHelper Uruguay · Software Odontológico con Voz"
     />
     <meta
       name="twitter:description"
       content="Gestión integral para odontólogos en Uruguay desde $40 USD/mes con descuento trimestral y anual."
+    />
+    <meta name="twitter:image" content="https://odontohelper.com.uy/og-image.jpg" />
+    <meta
+      name="twitter:image:alt"
+      content="OdontoHelper Uruguay — Software odontológico"
     />
 
     <script type="application/ld+json">
@@ -43,12 +62,38 @@
         "@context": "https://schema.org",
         "@graph": [
           {
+            "@type": "Organization",
+            "@id": "https://odontohelper.com.uy/#organization",
+            "name": "OdontoHelper Uruguay",
+            "url": "https://odontohelper.com.uy/",
+            "logo": "https://odontohelper.com.uy/pwa-512x512.png",
+            "areaServed": {
+              "@type": "Country",
+              "name": "Uruguay"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://odontohelper.com.uy/#website",
+            "name": "OdontoHelper Uruguay",
+            "url": "https://odontohelper.com.uy/",
+            "inLanguage": "es-UY",
+            "publisher": {
+              "@id": "https://odontohelper.com.uy/#organization"
+            }
+          },
+          {
             "@type": "SoftwareApplication",
             "name": "OdontoHelper",
+            "url": "https://odontohelper.com.uy/",
+            "image": "https://odontohelper.com.uy/og-image.jpg",
             "applicationCategory": "BusinessApplication",
             "applicationSubCategory": "Dental Practice Management Software",
             "operatingSystem": "Web, Windows, Android",
             "inLanguage": "es-UY",
+            "publisher": {
+              "@id": "https://odontohelper.com.uy/#organization"
+            },
             "areaServed": {
               "@type": "Country",
               "name": "Uruguay"
@@ -122,8 +167,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="OdontoHelper" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   </head>
   <body class="h-full bg-[#EDEFEA] text-slate-800 antialiased selection:bg-teal-100 selection:text-teal-900 dark:bg-slate-950 dark:text-slate-100 dark:selection:bg-teal-950 dark:selection:text-teal-200">
     <div id="root" class="h-full"></div>

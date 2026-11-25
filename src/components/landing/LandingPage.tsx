@@ -163,15 +163,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     onNavigateAuth('signup', 'base', selectedCycle);
   };
 
+  const getRouteHref = (route: PublicMarketingRoute): string =>
+    route === 'landing' ? '/' : `/${route}`;
+
+  const getAuthHref = (
+    mode: 'login' | 'signup',
+    plan?: PaidSubscriptionPlanTier,
+    cycle?: SubscriptionBillingCycle
+  ): string => {
+    if (mode === 'login') return '/login';
+    const params = new URLSearchParams();
+    if (plan) params.set('plan', plan);
+    if (cycle) params.set('ciclo', cycle);
+    const q = params.toString();
+    return q ? `/registro?${q}` : '/registro';
+  };
+
   return (
-    <div className="min-h-dvh bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div className="min-h-dvh overflow-x-clip bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* 3-Zone Top Bar */}
       <header className="sticky top-0 z-40 h-16 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800/80">
         <div className="max-w-6xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-4">
           {/* Zone 1: Brand */}
-          <button
-            type="button"
-            onClick={() => handleNavClick('landing')}
+          <a
+            href="/"
+            onClick={(e) => {
+              e.preventDefault();
+              handleNavClick('landing');
+            }}
             className="flex items-center gap-2.5 shrink-0 text-left cursor-pointer"
           >
             <div className="w-8 h-8 rounded-xl bg-teal-600 flex items-center justify-center text-white shrink-0">
@@ -195,7 +214,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
               OdontoHelper
             </span>
-          </button>
+          </a>
 
           {/* Zone 2: Nav Links */}
           <nav aria-label="Navegación principal" className="hidden md:flex items-center gap-6">
@@ -205,10 +224,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               { id: 'planes' as const, label: 'Planes' },
               { id: 'preguntas-frecuentes' as const, label: 'Preguntas' },
             ].map((item) => (
-              <button
+              <a
                 key={item.id}
-                type="button"
-                onClick={() => handleNavClick(item.id)}
+                href={getRouteHref(item.id)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavClick(item.id);
+                }}
                 className={`text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                   activeRoute === item.id
                     ? 'text-teal-700 dark:text-teal-300'
@@ -216,38 +238,47 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 }`}
               >
                 {item.label}
-              </button>
+              </a>
             ))}
           </nav>
 
           {/* Zone 3: Single Primary Action + Mobile Drawer */}
           <div className="flex items-center gap-2 shrink-0">
             {isAuthenticated && onGoToWorkspace ? (
-              <button
-                type="button"
-                onClick={onGoToWorkspace}
+              <a
+                href="/dictar"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onGoToWorkspace();
+                }}
                 className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors cursor-pointer whitespace-nowrap"
               >
                 <span>Ir al consultorio</span>
                 <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              </a>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => onNavigateAuth('login')}
+                <a
+                  href="/login"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onNavigateAuth('login');
+                  }}
                   className="hidden sm:inline-flex items-center px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   Iniciar sesión
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigateAuth('signup', 'base', selectedCycle)}
+                </a>
+                <a
+                  href={getAuthHref('signup', 'base', selectedCycle)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onNavigateAuth('signup', 'base', selectedCycle);
+                  }}
                   className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <span>Prueba 7 días</span>
                   <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                </a>
               </>
             )}
 
@@ -271,39 +302,44 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               { id: 'planes' as const, label: 'Planes y precios' },
               { id: 'preguntas-frecuentes' as const, label: 'Preguntas frecuentes' },
             ].map((item) => (
-              <button
+              <a
                 key={item.id}
-                type="button"
-                onClick={() => handleNavClick(item.id)}
+                href={getRouteHref(item.id)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavClick(item.id);
+                }}
                 className="block w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 {item.label}
-              </button>
+              </a>
             ))}
 
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex gap-2">
               {isAuthenticated && onGoToWorkspace ? (
-                <button
-                  type="button"
-                  onClick={() => {
+                <a
+                  href="/dictar"
+                  onClick={(e) => {
+                    e.preventDefault();
                     setMobileMenuOpen(false);
                     onGoToWorkspace();
                   }}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-teal-600 text-white cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-teal-600 text-white text-center cursor-pointer"
                 >
                   Ir al consultorio
-                </button>
+                </a>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
+                <a
+                  href="/login"
+                  onClick={(e) => {
+                    e.preventDefault();
                     setMobileMenuOpen(false);
                     onNavigateAuth('login');
                   }}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 cursor-pointer"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-center cursor-pointer"
                 >
                   Iniciar sesión
-                </button>
+                </a>
               )}
             </div>
           </div>
@@ -438,6 +474,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
                 );
               })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-semibold text-teal-700 dark:text-teal-300">
+              <a
+                href="/dictado-por-voz"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavClick('dictado-por-voz');
+                }}
+                className="inline-flex items-center gap-1 hover:underline"
+              >
+                <span>Ver dictado clínico por voz</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+              <a
+                href="/planes"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavClick('planes');
+                }}
+                className="inline-flex items-center gap-1 hover:underline"
+              >
+                <span>Comparar planes en USD</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
+              <a
+                href="/preguntas-frecuentes"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavClick('preguntas-frecuentes');
+                }}
+                className="inline-flex items-center gap-1 hover:underline"
+              >
+                <span>Resolver dudas frecuentes</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
         </section>
@@ -633,6 +705,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <img
                 src={clinicOperatoryImg}
                 alt="Sillón odontológico y box clínico luminoso en consultorio moderno de Uruguay"
+                width={1200}
+                height={675}
+                loading="lazy"
+                decoding="async"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />
@@ -642,6 +718,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <img
                 src={clinicDeskImg}
                 alt="Escritorio de consulta odontológica con vista al sillón clínico"
+                width={960}
+                height={540}
+                loading="lazy"
+                decoding="async"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />
@@ -658,6 +738,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <img
                     src={testimonial1Img}
                     alt="Dra. Lucía Rodríguez, odontóloga en Pocitos, Montevideo"
+                    width={320}
+                    height={320}
+                    loading="lazy"
+                    decoding="async"
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"
                   />
@@ -682,6 +766,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   <img
                     src={testimonial2Img}
                     alt="Dr. Martín Díaz, endodoncista en Centro, Montevideo"
+                    width={320}
+                    height={320}
+                    loading="lazy"
+                    decoding="async"
                     referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"
                   />
@@ -780,47 +868,62 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div>Software odontológico, historia clínica digital y dictado por voz</div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              onClick={() => handleNavClick('dictado-por-voz')}
+          <nav aria-label="Enlaces del pie de página" className="flex flex-wrap items-center gap-4">
+            <a
+              href="/dictado-por-voz"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavClick('dictado-por-voz');
+              }}
               className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               Cómo funciona
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNavClick('funciones')}
+            </a>
+            <a
+              href="/funciones"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavClick('funciones');
+              }}
               className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               Módulos
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNavClick('planes')}
+            </a>
+            <a
+              href="/planes"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavClick('planes');
+              }}
               className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               Planes
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNavClick('preguntas-frecuentes')}
+            </a>
+            <a
+              href="/preguntas-frecuentes"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNavClick('preguntas-frecuentes');
+              }}
               className="hover:text-slate-900 dark:hover:text-white cursor-pointer"
             >
               Preguntas
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                isAuthenticated && onGoToWorkspace
-                  ? onGoToWorkspace()
-                  : onNavigateAuth('login')
-              }
+            </a>
+            <a
+              href={isAuthenticated ? '/dictar' : '/login'}
+              onClick={(e) => {
+                e.preventDefault();
+                if (isAuthenticated && onGoToWorkspace) {
+                  onGoToWorkspace();
+                } else {
+                  onNavigateAuth('login');
+                }
+              }}
               className="font-semibold text-teal-700 dark:text-teal-300 hover:underline cursor-pointer"
             >
               {isAuthenticated ? 'Ir al consultorio' : 'Acceso profesionales'}
-            </button>
-          </div>
+            </a>
+          </nav>
         </div>
       </footer>
     </div>

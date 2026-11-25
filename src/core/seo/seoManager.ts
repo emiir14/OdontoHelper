@@ -46,43 +46,45 @@ export const URUGUAY_LANDING_FAQS: Array<{ question: string; answer: string }> =
   },
 ];
 
-const PUBLIC_SEO_MAP: Record<PublicMarketingRoute, SeoMetadataSpec> = {
+export const CANONICAL_ORIGIN = 'https://odontohelper.com.uy';
+
+export const PUBLIC_SEO_MAP: Record<PublicMarketingRoute, SeoMetadataSpec> = {
   landing: {
-    title: 'OdontoHelper Uruguay · Software Odontológico con Historia Clínica y Dictado por Voz',
+    title: 'OdontoHelper Uruguay · Software Odontológico con Voz',
     description:
-      'Software odontológico para clínicas y consultorios en Uruguay. Historia clínica digital, odontograma FDI, agenda, caja en UYU/USD y dictado por voz local. Probá 7 días gratis.',
+      'Software odontológico en Uruguay: historia clínica digital, odontograma FDI, agenda y dictado por voz local. Probá 7 días gratis.',
     canonicalPath: '/',
     robots: 'index, follow, max-image-preview:large',
     ogType: 'website',
   },
   funciones: {
-    title: 'Funciones Clínicas y Gestión · OdontoHelper Uruguay',
+    title: 'Funciones Clínicas · OdontoHelper Uruguay',
     description:
-      'Odontograma FDI interactivo, periodontograma, evoluciones cronológicas, presupuestos, caja diaria en pesos uruguayos, trabajos de laboratorio y fichas compartidas.',
+      'Odontograma FDI interactivo, periodontograma, evoluciones, presupuestos, caja diaria en $ UYU/USD, laboratorio y fichas compartidas.',
     canonicalPath: '/funciones',
     robots: 'index, follow, max-image-preview:large',
     ogType: 'website',
   },
   'dictado-por-voz': {
-    title: 'Dictado por Voz Odontológico Offline · OdontoHelper Uruguay',
+    title: 'Dictado por Voz Dental Offline · OdontoHelper Uruguay',
     description:
-      'Dictá evoluciones e historias clínicas por voz entre paciente y paciente. Reconocimiento de piezas FDI y terminología dental sin enviar el audio a la nube.',
+      'Dictá historias clínicas por voz entre pacientes. Reconocimiento de piezas FDI y terminología dental sin enviar audio a la nube.',
     canonicalPath: '/dictado-por-voz',
     robots: 'index, follow, max-image-preview:large',
     ogType: 'website',
   },
   planes: {
-    title: 'Planes y Precios en Uruguay · OdontoHelper desde $40 USD/mes',
+    title: 'Planes OdontoHelper Uruguay · Desde $40 USD/mes',
     description:
-      'Plan Profesional a $40 USD/mes con 15% de descuento trimestral y 25% anual. Pago por transferencia bancaria en Uruguay (BROU, Itaú, Santander, Prex). 7 días gratis.',
+      'Plan Profesional a $40 USD/mes con 15% OFF trimestral y 25% anual. Transferencia bancaria en Uruguay (BROU, Itaú, Prex). 7 días gratis.',
     canonicalPath: '/planes',
     robots: 'index, follow, max-image-preview:large',
     ogType: 'product',
   },
   'preguntas-frecuentes': {
-    title: 'Preguntas Frecuentes · OdontoHelper Software Odontológico Uruguay',
+    title: 'Preguntas Frecuentes · OdontoHelper Uruguay',
     description:
-      'Respondemos dudas sobre prueba gratis de 7 días, pago por transferencia en Uruguay, privacidad del dictado por voz, odontograma digital y respaldo de historias clínicas.',
+      'Dudas sobre prueba gratis de 7 días, pago por transferencia en Uruguay, privacidad del dictado por voz, odontograma y resguardo clínico.',
     canonicalPath: '/preguntas-frecuentes',
     robots: 'index, follow, max-image-preview:large',
     ogType: 'website',
@@ -115,11 +117,17 @@ function upsertCanonical(url: string): void {
   link.setAttribute('href', url);
 }
 
+function removeCanonical(): void {
+  if (typeof document === 'undefined') return;
+  const link = document.head.querySelector('link[rel="canonical"]');
+  if (link) link.remove();
+}
+
 export function applyPublicSeoMetadata(route: PublicMarketingRoute): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
   const spec = getPublicSeoSpec(route);
-  const origin = window.location.origin;
-  const canonicalUrl = `${origin}${spec.canonicalPath}`;
+  const canonicalUrl = `${CANONICAL_ORIGIN}${spec.canonicalPath}`;
+  const ogImageUrl = `${CANONICAL_ORIGIN}/og-image.jpg`;
 
   document.title = spec.title;
   upsertMeta('name', 'description', spec.description);
@@ -129,8 +137,11 @@ export function applyPublicSeoMetadata(route: PublicMarketingRoute): void {
   upsertMeta('property', 'og:type', spec.ogType || 'website');
   upsertMeta('property', 'og:locale', 'es_UY');
   upsertMeta('property', 'og:url', canonicalUrl);
+  upsertMeta('property', 'og:image', ogImageUrl);
+  upsertMeta('property', 'og:image:alt', `${spec.title} — OdontoHelper`);
   upsertMeta('name', 'twitter:title', spec.title);
   upsertMeta('name', 'twitter:description', spec.description);
+  upsertMeta('name', 'twitter:image', ogImageUrl);
   upsertCanonical(canonicalUrl);
 }
 
@@ -138,4 +149,17 @@ export function applyPrivateNoIndexMetadata(title: string): void {
   if (typeof document === 'undefined') return;
   document.title = title;
   upsertMeta('name', 'robots', 'noindex, nofollow');
+  removeCanonical();
+}
+
+export function applyNotFoundMetadata(): void {
+  if (typeof document === 'undefined') return;
+  document.title = '404 · Página no encontrada · OdontoHelper';
+  upsertMeta(
+    'name',
+    'description',
+    'La página solicitada no existe o fue movida en OdontoHelper Uruguay.'
+  );
+  upsertMeta('name', 'robots', 'noindex, nofollow');
+  removeCanonical();
 }

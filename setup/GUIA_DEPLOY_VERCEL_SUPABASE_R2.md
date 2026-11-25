@@ -1,6 +1,6 @@
 # Guía completa de despliegue y configuración · OdontoHelper
 
-Esta carpeta `/setup/` reúne **todos los archivos y pasos necesarios** para llevar **OdontoHelper** a producción en **Vercel + Supabase**, administrar altas/renovaciones en USD por transferencia bancaria y conectar en el futuro **Cloudflare R2** para el almacenamiento de audios comprimidos del **Plan Extra**.
+Esta carpeta `/setup/` reúne **todos los archivos y pasos necesarios** para llevar **OdontoHelper** a producción en **Vercel + Supabase**, compilar las apps nativas conectadas a la nube (**Windows `.exe`** y **Android `.apk`** vía GitHub Actions), administrar altas/renovaciones en USD por transferencia bancaria y conectar en el futuro **Cloudflare R2** para el almacenamiento de audios comprimidos del **Plan Extra**.
 
 ---
 
@@ -20,13 +20,15 @@ Esta carpeta `/setup/` reúne **todos los archivos y pasos necesarios** para lle
 
 Podés usar `/.env.example` como plantilla.
 
-### A. Variables del MVP (obligatorias en Vercel y `.env.local`)
+### A. Variables del MVP (obligatorias en Vercel, GitHub Actions y `.env.local`)
 
-| Variable | Dónde conseguirla | Uso | ¿Se expone al navegador? |
+> **Aclaración importante sobre Supabase:** En **Supabase no se suben ni se cargan variables de entorno**; desde Supabase **obtenés** `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`, ejecutás el SQL y configurás las *Redirect URLs*. Esas variables luego se cargan en **Vercel** (para la web) y en **GitHub Actions** (para compilar el `.exe` y el `.apk`).
+
+| Variable | Dónde conseguirla | Uso | ¿Se expone al cliente? |
 |---|---|---|---|
 | `VITE_SUPABASE_URL` | Supabase → **Project Settings → API → Project URL** | Conexión a Auth, Postgres y Storage | Sí (`VITE_*` es público, protegido por RLS) |
-| `VITE_SUPABASE_ANON_KEY` | Supabase → **Project Settings → API → `anon` `public` key** | Clave pública anónima de Supabase | Sí (segura con RLS estricto habilitado) |
-| `VITE_GITHUB_REPO` | Tu repo en formato `usuario/repo` (ej. `emiir14/LocalTrans`) | Descargas opcionales desktop/APK | Sí |
+| `VITE_SUPABASE_ANON_KEY` | Supabase → **Project Settings → API → `anon` `public` key** | Clave pública anónima de Supabase (nunca uses `service_role` acá) | Sí (segura con RLS estricto habilitado) |
+| `VITE_GITHUB_REPO` | Tu repo en formato `usuario/repo` (ej. `emiir14/LocalTrans`) | Descargas y auto-actualizaciones desktop/APK | Sí |
 | `VITE_FIREBASE_API_KEY` | Google Cloud Console → **APIs y servicios → Credenciales** (tu clave web restringida) | Clave pública web para Google Calendar OAuth (nunca commitear en Git ni en `firebase-applet-config.json`) | Sí (restringida por dominio y APIs) |
 | `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` | Firebase Console → **Project Settings → Your apps (Web)** | Identificadores públicos del proyecto Firebase (`gen-lang-client-0728564052`) para OAuth en navegador | Sí (identificadores públicos) |
 
@@ -71,6 +73,8 @@ Podés usar `/.env.example` como plantilla.
      - `https://tu-proyecto.vercel.app/**`
      - `https://*-tu-usuario.vercel.app/**` *(para previews de Vercel, si usás)*
      - `http://localhost:3000/**` *(para desarrollo local)*
+     - `https://tauri.localhost/**` *(requerido por la app nativa Android `.apk` y Tauri WebView)*
+     - `http://tauri.localhost/**` *(requerido por la app nativa Windows `.exe`)*
 2. Andá a **Authentication → Providers → Email**:
    - **Opción recomendada en lanzamiento / pruebas:** si aún no configuraste un SMTP propio (Resend / Postmark), tené en cuenta que el SMTP gratuito de Supabase limita a pocos emails/hora. Para evitar fricción en el alta inicial podés desactivar *Confirm email* temporalmente, o conectar SMTP custom en **Project Settings → Auth → SMTP Settings** antes de campañas masivas.
 
@@ -221,3 +225,65 @@ No necesitás configurar rewrites manuales en el panel porque `vercel.json` ya d
 - [ ] Subir una imagen en la ficha de un paciente → verificar archivo privado en Supabase Storage (`patient-files`).
 - [ ] En **Agenda → Sincronizar Apple / Google**, probar el enlace `webcal://` (`/api/agenda-feed.ics?token=...` devuelve `200 OK` `text/calendar`) y la conexión OAuth con Google Calendar.
 - [ ] Verificar `/robots.txt` y `/sitemap.xml` públicos y sin errores 404.
+
+---
+
+## 7. Compilar y vincular a la nube las apps nativas (`OdontoHelper-Setup.exe` y `OdontoHelper.apk`)
+
+Las apps nativas de Windows (`.exe`) y Android (`.apk`) ya están configuradas en `src-tauri/tauri.conf.json`, `scripts/patch-android-project.mjs` y `.github/workflows/` para:
+- Ejecutar la transcripción **100% local en tu dispositivo** (`whisper.cpp` con Vulkan/CPU en Windows y WASM en Android) manteniendo los audios locales en el equipo.
+- **Sincronizar con Supabase** cuentas, sesiones de dictado, texto de transcripciones, pacientes, historias clínicas, agenda, presupuestos, caja y radiografías (`patient-files`).
+
+> **Cómo funciona la compilación:** Vite inyecta las variables `VITE_*` **en el momento de compilar**. Por eso, para que el `.exe` y el `.apk` salgan conectados a tu proyecto en la nube, esas variables tienen que estar cargadas en **GitHub Actions** antes de generar el Release.
+
+### 7.1. Qué necesitás tener listo en Supabase (antes de compilar)
+1. **Esquema ejecutado:** haber corrido `setup/supabase-schema.sql` en **SQL Editor**.
+2. **Redirect URLs nativas agregadas:** en **Authentication → URL Configuration → Redirect URLs**, asegurate de tener:
+   - `https://tauri.localhost/**`
+   - `http://tauri.localhost/**`
+3. **Copiar credenciales públicas:** en **Project Settings → API**, tené a mano:
+   - `Project URL` → será `VITE_SUPABASE_URL`
+   - `anon` `public` key → será `VITE_SUPABASE_ANON_KEY`
+   *(Nunca uses la clave `service_role` en variables `VITE_*` ni en compilaciones cliente).*
+
+### 7.2. Cargar variables en GitHub (`Settings → Secrets and variables → Actions`)
+Entrá a tu repositorio en GitHub → **Settings → Secrets and variables → Actions → New repository secret** (pestaña *Secrets*) y cargá:
+
+**Obligatorias para sincronización en la nube (`.exe` y `.apk`):**
+- `VITE_SUPABASE_URL` → tu `Project URL` de Supabase (`https://xxxx.supabase.co`).
+- `VITE_SUPABASE_ANON_KEY` → tu clave pública `anon` de Supabase.
+
+**Opcionales recomendadas (si querés Google Calendar OAuth también desde las apps nativas):**
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+> *Nota para Google Calendar en apps nativas:* si restringiste tu `VITE_FIREBASE_API_KEY` por **Sitios web (HTTP Referrers)** en Google Cloud Console y agregaste `https://tauri.localhost/*` y `http://tauri.localhost/*` (además de `tauri.localhost` en **Firebase Auth → Authorized domains**), también funcionará el inicio de sesión de Calendar; en entornos Windows/Android donde los popups de WebView queden bloqueados, los turnos igualmente se sincronizan por Supabase y por el feed `webcal://` en la web.
+
+**Opcionales para firma digital de distribuciones:**
+- **Android `.apk` con clave permanente** (recomendado para permitir actualizaciones encima sin desinstalar):
+  - `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` *(si no los cargás, el workflow firma igualmente con una clave temporal para que el APK sea instalable)*.
+- **Windows `.exe` con SignPath Foundation (código abierto):**
+  - Secret: `SIGNPATH_API_TOKEN`
+  - Variables (*Variables* tab): `SIGNPATH_ORGANIZATION_ID`, y opcionales `SIGNPATH_PROJECT_SLUG` (`odontohelper`), `SIGNPATH_SIGNING_POLICY_SLUG` (`release-signing`).
+- **Repo personalizado** (en pestaña *Variables* si tu repo no es `emiir14/LocalTrans`): `VITE_GITHUB_REPO` con formato `usuario/repo`.
+
+### 7.3. Disparar la compilación y publicar los descargables
+Tenés dos formas de generar `OdontoHelper-Setup.exe` y `OdontoHelper.apk` en **GitHub Releases** (lo que además habilita automáticamente los botones de **Descargas nativas** en la app web y el **comprobador de actualizaciones**):
+1. **Manual desde GitHub (más rápido):**
+   - Andá a tu repo en GitHub → pestaña **Actions**.
+   - Seleccioná **Build OdontoHelper Windows (.exe)** → **Run workflow** → dejá `publish_release = true` y `release_tag = v1.0.1` (o la versión vigente en `src-tauri/tauri.conf.json`).
+   - Repetí lo mismo con **Build OdontoHelper Android (.apk)**.
+2. **Automático por tag Git:**
+   ```bash
+   git tag v1.0.1
+   git push origin v1.0.1
+   ```
+3. Al finalizar ambos jobs (~5–12 min), verificá en **GitHub → Releases** que existan los archivos **`OdontoHelper-Setup.exe`** y **`OdontoHelper.apk`**.
+
+### 7.4. Verificación end-to-end (nube ↔ `.exe` / `.apk`)
+1. Instalá `OdontoHelper-Setup.exe` (Windows) y/o `OdontoHelper.apk` (Android).
+2. Iniciá sesión con tu misma cuenta de OdontoHelper que usás en la web.
+3. Grabá una prueba corta en el `.exe` o `.apk`: comprobá que la transcripción se ejecuta local, que la sesión y su texto aparecen al instante en la versión web (Supabase `sessions` y `transcript_segments`), y que las fichas/evoluciones de pacientes quedan sincronizadas sin que el audio salga de tu dispositivo.

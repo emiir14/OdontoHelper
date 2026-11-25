@@ -1,0 +1,21 @@
+# OdontoHelper Uruguay
+
+> Software odontológico integral pensado para clínicas y consultorios odontológicos en Uruguay: historia clínica digital, odontograma FDI, periodontograma, agenda con WhatsApp y calendarios, presupuestos, caja diaria en pesos uruguayos ($ UYU) y dólares (USD), laboratorio y dictado clínico por voz 100% local en el dispositivo.
+
+## Páginas públicas principales
+
+- [Inicio](https://odontohelper.com.uy/): Presentación general, prueba gratis de 7 días sin tarjeta y resumen del flujo clínico.
+- [Funciones clínicas](https://odontohelper.com.uy/funciones): Odontograma FDI interactivo, periodontograma, fichas compartidas de un clic para especialistas, caja diaria en $ UYU / USD y seguimiento de laboratorio.
+- [Dictado por voz odontológico](https://odontohelper.com.uy/dictado-por-voz): Captura de voz local en el dispositivo con Whisper (navegador, Windows .exe con Vulkan/CPU y Android .apk), reconocimiento de piezas FDI y agendamiento rápido de próximo control.
+- [Planes y precios en Uruguay](https://odontohelper.com.uy/planes): Prueba gratuita de 7 días; Plan Profesional a USD 40/mes (15% OFF trimestral, 25% OFF anual); Plan Extra a USD 59/mes; pago por transferencia bancaria en Uruguay (BROU, Santander, Itaú, BBVA, Prex y OCA Blue).
+- [Preguntas frecuentes](https://odontohelper.com.uy/preguntas-frecuentes): Privacidad del audio, funcionamiento offline, monedas ($ UYU y USD), resguardo de datos y derivación segura a colegas.
+
+## Privacidad y cookies
+
+- En el Plan Profesional y la prueba de 7 días, el audio de las consultas y la transcripción con Whisper se procesan localmente en el dispositivo sin subir grabaciones a servidores externos.
+- Las historias clínicas, odontogramas y agenda se almacenan en Supabase con aislamiento por consultorio (Row-Level Security).
+- La aplicación web no utiliza cookies de seguimiento ni publicidad de terceros.
+
+## Rutas privadas (no indexables)
+
+Las rutas bajo `/login`, `/registro`, `/dictar`, `/inicio`, `/pacientes`, `/proveedores`, `/agenda`, `/presupuestos`, `/caja`, `/reportes`, `/herramientas`, `/ventana`, `/compartir` y `/api/` pertenecen al área clínica autenticada y están excluidas de indexación en `robots.txt`.

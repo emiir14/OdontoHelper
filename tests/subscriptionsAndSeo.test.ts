@@ -10,7 +10,12 @@ import {
   evaluateSubscriptionStatus,
 } from '../src/core/clinic/subscriptionPlans';
 import { isPublicMarketingPath, parseAppLocation } from '../src/core/routing/appRoutes';
-import { getPublicSeoSpec, URUGUAY_LANDING_FAQS } from '../src/core/seo/seoManager';
+import {
+  CANONICAL_ORIGIN,
+  PUBLIC_SEO_MAP,
+  getPublicSeoSpec,
+  URUGUAY_LANDING_FAQS,
+} from '../src/core/seo/seoManager';
 import { WorkspaceSubscription } from '../src/core/types';
 
 describe('Subscriptions, 7-Day Trial & All-Tier Expiration Alerts', () => {
@@ -239,7 +244,9 @@ describe('Public Marketing Routes & Uruguay SEO Metadata', () => {
     expect(signup.requestedCycle).toBe('annual');
   });
 
-  it('provides localized Uruguay SEO specifications and FAQs', () => {
+  it('provides localized Uruguay SEO specifications, valid title/description lengths, and FAQs', () => {
+    expect(CANONICAL_ORIGIN).toBe('https://odontohelper.com.uy');
+
     const landingSeo = getPublicSeoSpec('landing');
     expect(landingSeo.title).toContain('Uruguay');
     expect(landingSeo.robots).toContain('index');
@@ -247,6 +254,16 @@ describe('Public Marketing Routes & Uruguay SEO Metadata', () => {
     const pricingSeo = getPublicSeoSpec('planes');
     expect(pricingSeo.title).toContain('$40 USD');
     expect(pricingSeo.canonicalPath).toBe('/planes');
+
+    for (const spec of Object.values(PUBLIC_SEO_MAP)) {
+      expect(spec.title.length).toBeGreaterThanOrEqual(30);
+      expect(spec.title.length).toBeLessThanOrEqual(60);
+      expect(spec.description.length).toBeGreaterThanOrEqual(120);
+      expect(spec.description.length).toBeLessThanOrEqual(160);
+      expect(spec.canonicalPath.startsWith('/')).toBe(true);
+      expect(spec.robots).toContain('index');
+      expect(spec.robots).not.toContain('noindex');
+    }
 
     expect(URUGUAY_LANDING_FAQS.length).toBeGreaterThanOrEqual(5);
   });

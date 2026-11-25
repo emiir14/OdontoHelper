@@ -1,12 +1,12 @@
 [package]
-name = "escriba"
+name = "odontohelper"
 version = "1.0.1"
-description = "Escriba - Transcripción local privada"
-authors = ["Escriba"]
+description = "OdontoHelper - Consultorio Odontológico y Dictado Clínico"
+authors = ["OdontoHelper"]
 edition = "2021"
 
 [lib]
-name = "escriba_lib"
+name = "odontohelper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

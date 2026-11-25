@@ -6,17 +6,22 @@
 --     turnos/agenda, glosario, ajustes, metadatos y transcripciones en texto)
 --     se almacenan en Supabase.
 --   - En el Plan Profesional ('base') y la prueba gratuita, el audio PCM crudo
---     y la inferencia/pesos del modelo Whisper permanecen 100% en el navegador.
+--     y la inferencia/pesos del modelo Whisper permanecen 100% en el dispositivo
+--     (navegador, Windows .exe o Android .apk).
 --   - Las columnas audio_cloud_* de `sessions` dejan preparada la base para
 --     respaldos comprimidos en Cloudflare R2 en planes avanzados ('extra').
 --
 -- Instrucciones:
 --   1. Abrí tu proyecto en Supabase -> SQL Editor -> New query.
 --   2. Pegá y ejecutá este archivo completo (`setup/supabase-schema.sql`).
---   3. Configurá en Vercel las variables:
---        VITE_SUPABASE_URL
---        VITE_SUPABASE_ANON_KEY
---   4. Para aprobar transferencias USD manuales usá `setup/supabase-activar-suscripcion.sql`.
+--   3. En Supabase -> Authentication -> URL Configuration -> Redirect URLs,
+--      agregá tu dominio web + `https://tauri.localhost/**` y `http://tauri.localhost/**`
+--      (necesarios para las apps nativas .exe y .apk).
+--   4. Copiá Project URL (`VITE_SUPABASE_URL`) y `anon public` key (`VITE_SUPABASE_ANON_KEY`)
+--      desde Project Settings -> API y cargalos en:
+--        - Vercel -> Environment Variables (para la web)
+--        - GitHub -> Settings -> Secrets and variables -> Actions (para .exe y .apk)
+--   5. Para aprobar transferencias USD manuales usá `setup/supabase-activar-suscripcion.sql`.
 -- ============================================================================
 
 -- 1. Espacios de trabajo / Consultorios

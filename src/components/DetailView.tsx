@@ -506,7 +506,7 @@ export const DetailView: React.FC = () => {
       <div className="hidden print-only space-y-6 text-slate-900">
         <div className="border-b border-slate-300 pb-4 flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-bold">OdontoHelper · Registro Clínico Odontológico</h1>
+            <div className="text-xl font-bold">OdontoHelper · Registro Clínico Odontológico</div>
             <p className="text-sm text-slate-600 mt-1">
               Paciente / Referencia: <strong>{activeSession.reference || activeSession.title}</strong>
             </p>
@@ -519,7 +519,7 @@ export const DetailView: React.FC = () => {
 
         {(activeSession.clinicalNote || noteDraft.procedure || noteDraft.findings) && (
           <div className="space-y-2 border border-slate-300 rounded-xl p-4 print-break-inside-avoid">
-            <h2 className="text-sm font-bold uppercase tracking-wide">Ficha Clínica</h2>
+            <div className="text-sm font-bold uppercase tracking-wide">Ficha Clínica</div>
             {noteDraft.detectedTeeth.length > 0 && (
               <p className="text-xs whitespace-pre-wrap break-words">
                 <strong>Piezas FDI:</strong> {noteDraft.detectedTeeth.join(', ')}
@@ -554,7 +554,7 @@ export const DetailView: React.FC = () => {
         )}
 
         <div className="space-y-3">
-          <h2 className="text-sm font-bold uppercase tracking-wide">Transcripción de la consulta</h2>
+          <div className="text-sm font-bold uppercase tracking-wide">Transcripción de la consulta</div>
           {activeTranscript.map((seg) => (
             <div key={seg.id} className="text-xs leading-relaxed border-b border-slate-100 pb-2">
               {seg.speaker && <strong className="mr-1.5">{seg.speaker}:</strong>}
@@ -935,9 +935,9 @@ export const DetailView: React.FC = () => {
                   <Laptop className="w-4 h-4" />
                 </div>
                 <div className="min-w-0 space-y-1">
-                  <h3 className="text-xs font-semibold text-amber-950 dark:text-amber-100">
+                  <h2 className="text-xs font-semibold text-amber-950 dark:text-amber-100">
                     Audio local en otro dispositivo
-                  </h3>
+                  </h2>
                   <div className="text-[11px] text-amber-900/90 dark:text-amber-200/90 space-y-0.5">
                     <div className="font-mono break-all">
                       Archivo: {activeSession.audioFileName || `audio_${activeSession.id}.wav`}
@@ -1012,7 +1012,7 @@ export const DetailView: React.FC = () => {
                     <Sparkles className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                       {isTranscribingThisSession ? (
                         <>
                           <span className="relative flex h-2.5 w-2.5">
@@ -1026,7 +1026,7 @@ export const DetailView: React.FC = () => {
                       ) : (
                         'Transcripción pendiente'
                       )}
-                    </h3>
+                    </h2>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       {isTranscribingThisSession
                         ? 'Motor Whisper 100% en tu equipo'
@@ -1666,9 +1666,9 @@ export const DetailView: React.FC = () => {
                       </div>
                     </div>
                     <div className="max-w-md mx-auto space-y-1.5">
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                         Iniciando transcripción en tiempo real...
-                      </h4>
+                      </h3>
                       <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                         Whisper está analizando el primer fragmento de voz. En cuanto termine, aparecerá aquí inmediatamente.
                       </p>

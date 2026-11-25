@@ -214,6 +214,23 @@ describe('Routing: Auth, Modules, URLs, and Patient Privacy', () => {
     expect(title).toBe('Ficha clínica · OdontoHelper');
     expect(title).not.toContain('pat_42');
   });
+
+  it('flags unknown URL paths with isNotFound while keeping known public, login, and module routes valid', () => {
+    const unknown = parseAppLocation('/pagina-que-no-existe');
+    expect(unknown.isNotFound).toBe(true);
+    expect(unknown.isLoginRoute).toBe(false);
+    expect(unknown.publicRoute).toBeNull();
+
+    const unknownNested = parseAppLocation('/funciones/inexistente/extra');
+    expect(unknownNested.isNotFound).toBe(true);
+
+    expect(parseAppLocation('/').isNotFound).toBe(false);
+    expect(parseAppLocation('/planes').isNotFound).toBe(false);
+    expect(parseAppLocation('/login').isNotFound).toBe(false);
+    expect(parseAppLocation('/registro').isNotFound).toBe(false);
+    expect(parseAppLocation('/dictar').isNotFound).toBe(false);
+    expect(parseAppLocation('/agenda').isNotFound).toBe(false);
+  });
 });
 
 describe('SPA Server Fallback Classifier', () => {

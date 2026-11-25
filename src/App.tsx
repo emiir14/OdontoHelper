@@ -15,6 +15,7 @@ import {
   sanitizeInternalNextPath,
 } from './core/routing/appRoutes';
 import {
+  applyNotFoundMetadata,
   applyPrivateNoIndexMetadata,
   applyPublicSeoMetadata,
 } from './core/seo/seoManager';
@@ -32,6 +33,9 @@ const SupabaseAuthView = lazy(() =>
 );
 const AuthenticatedApp = lazy(() =>
   import('./components/AuthenticatedApp').then((m) => ({ default: m.AuthenticatedApp }))
+);
+const NotFoundView = lazy(() =>
+  import('./components/NotFoundView').then((m) => ({ default: m.NotFoundView }))
 );
 
 const ShellLoadingFallback: React.FC = () => (
@@ -119,9 +123,11 @@ export default function App() {
     typeof window !== 'undefined' ? window.location.search : ''
   );
 
-  // Ensure SEO metadata matches the active public marketing route vs private auth routes
+  // Ensure SEO metadata matches the active public marketing route, 404, or private auth routes
   useEffect(() => {
-    if (parsed.publicRoute) {
+    if (parsed.isNotFound) {
+      applyNotFoundMetadata();
+    } else if (parsed.publicRoute) {
       applyPublicSeoMetadata(parsed.publicRoute);
     } else if (!hasActiveSession && parsed.isLoginRoute) {
       applyPrivateNoIndexMetadata(
@@ -130,7 +136,7 @@ export default function App() {
           : 'Iniciar sesión · OdontoHelper'
       );
     }
-  }, [hasActiveSession, parsed.publicRoute, parsed.isLoginRoute, parsed.isSignupRoute, urlKey]);
+  }, [hasActiveSession, parsed.isNotFound, parsed.publicRoute, parsed.isLoginRoute, parsed.isSignupRoute, urlKey]);
 
   const navigateToUrl = useCallback((targetUrl: string, replace = false) => {
     if (typeof window === 'undefined') return;
@@ -187,6 +193,18 @@ export default function App() {
     setHasActiveSession(false);
     navigateToUrl('/', true);
   }, [navigateToUrl]);
+
+  if (parsed.isNotFound) {
+    return (
+      <Suspense fallback={<ShellLoadingFallback />}>
+        <NotFoundView
+          requestedPath={typeof window !== 'undefined' ? window.location.pathname : '/'}
+          isAuthenticated={hasActiveSession}
+          onNavigate={navigateToUrl}
+        />
+      </Suspense>
+    );
+  }
 
   // Public Commercial Landing & Marketing Subpages (/, /funciones, /dictado-por-voz, /planes, /preguntas-frecuentes)
   // Always accessible even if the browser already holds an active clinical session.

@@ -474,9 +474,9 @@ export const TreatmentPlanCard: React.FC<PlanCardProps> = ({
               </>
             )}
           </div>
-          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1.5">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1.5">
             {plan.title}
-          </h3>
+          </h2>
           <div className="text-xs text-slate-500 dark:text-slate-400">
             Paciente: <strong className="text-slate-700 dark:text-slate-200">{plan.patientName}</strong>
             {plan.validUntil ? ` · Válido hasta ${plan.validUntil}` : ''}
