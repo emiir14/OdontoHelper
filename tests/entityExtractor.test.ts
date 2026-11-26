@@ -8,13 +8,14 @@ import {
 describe('extractPatientFromTranscript', () => {
   it('extracts structured patient fields from natural Spanish clinical dictation', () => {
     const transcript =
-      'Nuevo paciente Lucía Fernández, DNI 35.420.118, tiene 33 años, teléfono 11 5544 3322, correo lucia arroba gmail punto com, domicilio Av. Santa Fe 1420, obra social OSDE, afiliado 405012, alergia a la penicilina, antecedentes hipertensión controlada, motivo de consulta dolor agudo en pieza 3.6.';
+      'Nuevo paciente Lucía Fernández, DNI 35.420.118, tiene 33 años, nació el 12 de mayo de 1988, teléfono 11 5544 3322, correo lucia arroba gmail punto com, domicilio Av. Santa Fe 1420, obra social OSDE, afiliado 405012, alergia a la penicilina, antecedentes hipertensión controlada, motivo de consulta dolor agudo en pieza 3.6.';
 
     const res = extractPatientFromTranscript(transcript);
 
     expect(res.fullName).toBe('Lucía Fernández');
     expect(res.dni).toBe('35.420.118');
     expect(res.age).toBe('33');
+    expect(res.birthDate).toBe('1988-05-12');
     expect(res.phone).toBe('11 5544 3322');
     expect(res.email).toBe('lucia@gmail.com');
     expect(res.address).toBe('Av. Santa Fe 1420');

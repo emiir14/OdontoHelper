@@ -101,7 +101,7 @@ function extractBirthDate(text: string): string {
   if (spoken) {
     const dd = spoken[1].padStart(2, '0');
     const mm = MONTHS_ES[spoken[2].toLowerCase()] || '01';
-    const yyyy = spoken[4];
+    const yyyy = spoken[3];
     return `${yyyy}-${mm}-${dd}`;
   }
 
