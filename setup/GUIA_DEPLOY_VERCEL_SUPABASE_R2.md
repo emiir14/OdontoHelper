@@ -42,8 +42,18 @@ Podés usar `/.env.example` como plantilla.
 | `R2_ACCESS_KEY_ID` | Cloudflare R2 → Manage R2 API Tokens (permiso *Object Read & Write* solo al bucket) |
 | `R2_SECRET_ACCESS_KEY` | Secreto generado junto al token de R2 (se muestra una sola vez) |
 | `R2_BUCKET_NAME` | Nombre del bucket privado (ej. `odontohelper-audios`) |
-| `SUPABASE_URL` | Mismo Project URL de Supabase (para validar el JWT del usuario desde `/api/*`) |
-| `SUPABASE_ANON_KEY` | Misma `anon` key de Supabase (para validar sesión y plan en `/api/*`) |
+| `SUPABASE_URL` | Mismo Project URL de Supabase *(opcional en MVP: `/api/health` y `/api/agenda-feed` ya leen `VITE_SUPABASE_URL` como respaldo)* |
+| `SUPABASE_ANON_KEY` | Misma `anon` key de Supabase *(opcional en MVP: `/api/health` y `/api/agenda-feed` ya leen `VITE_SUPABASE_ANON_KEY` como respaldo)* |
+
+### C. Variables opcionales solo en GitHub Actions (firma digital de `.apk` y `.exe`)
+
+> No se cargan en Vercel ni en `.env.local`. Solo se usan si querés firmar instaladores con certificado propio en **GitHub → Settings → Secrets and variables → Actions** (ver paso 7.2).
+
+| Variable / Secret | Tipo en GitHub | Para qué sirve |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Secrets | Firma permanente del `.apk` para actualizar sin desinstalar |
+| `SIGNPATH_API_TOKEN` | Secret | Token API de SignPath Foundation para firmar `OdontoHelper-Setup.exe` |
+| `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG` | Variables | Identificadores de organización/proyecto/política en SignPath |
 
 ---
 
