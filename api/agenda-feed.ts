@@ -1,8 +1,8 @@
 import {
   buildWorkspaceCalendarFeedIcs,
-  CalendarFeedRowLike,
   isValidCalendarFeedToken,
-} from '../src/core/clinic/calendarFeed';
+} from '../src/core/clinic/calendarFeed.js';
+import type { CalendarFeedRowLike } from '../src/core/clinic/calendarFeed.js';
 
 interface VercelReq {
   method?: string;

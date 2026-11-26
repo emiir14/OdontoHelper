@@ -1,4 +1,4 @@
-import { Appointment } from '../types';
+import type { Appointment } from '../types';
 
 export const CALENDAR_FEED_TOKEN_PREFIX = 'ohcal_';
 

@@ -6,7 +6,7 @@ Escriba Desktop utiliza **Tauri v2** + **`whisper.cpp` (`whisper-rs`)** con acel
 
 No necesitás instalar Rust, Visual Studio ni ejecutar comandos en tu PC.
 
-1. Subí estos cambios a tu repositorio de GitHub (`emiir14/LocalTrans`).
+1. Subí estos cambios a tu repositorio de GitHub (`emiir14/OdontoHelper`).
 2. En GitHub, abrí **Actions → Build Escriba Windows (.exe) → Run workflow** (arriba a la derecha).
    - Dejá marcada la opción **Publicar en GitHub Releases** y la versión `v1.0.0` (en futuras versiones cambiá a `v1.0.1`, `v1.0.2`, etc.).
    - Tocá el botón verde **Run workflow**.
@@ -15,7 +15,7 @@ No necesitás instalar Rust, Visual Studio ni ejecutar comandos en tu PC.
 *(Alternativa desde consola: `git tag v1.0.0 && git push origin v1.0.0`).*
 
 ### Variable en Vercel (opcional)
-Ya viene `emiir14/LocalTrans` configurado por defecto, pero si usás otro repo podés definir:
+Ya viene `emiir14/OdontoHelper` configurado por defecto, pero si usás otro repo podés definir:
 ```env
 VITE_GITHUB_REPO="tu-usuario/tu-repositorio"
 ```

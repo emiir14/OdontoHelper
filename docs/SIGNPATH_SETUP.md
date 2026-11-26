@@ -13,8 +13,8 @@ El repositorio ya incluye:
 ## Pasos para activarlo (una sola vez)
 
 1. **Solicitá la cuenta gratuita Open Source:**
-   - Entrá a [about.signpath.io](https://about.signpath.io) y completá el formulario de **SignPath Foundation** indicando tu repositorio público `https://github.com/emiir14/LocalTrans`.
-   - Cuando te aprueben, instalá la **SignPath GitHub App** en `emiir14/LocalTrans`.
+   - Entrá a [about.signpath.io](https://about.signpath.io) y completá el formulario de **SignPath Foundation** indicando tu repositorio público `https://github.com/emiir14/OdontoHelper`.
+   - Cuando te aprueben, instalá la **SignPath GitHub App** en `emiir14/OdontoHelper`.
 
 2. **Creá el Project y Signing Policy en SignPath:**
    - Project slug sugerido: `escriba`

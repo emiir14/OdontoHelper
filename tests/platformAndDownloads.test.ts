@@ -23,9 +23,9 @@ describe('Platform & Desktop Runtime Bridge', () => {
     vi.unstubAllGlobals();
   });
 
-  it('defaults GitHub releases repo to emiir14/LocalTrans when no env or local override is set', () => {
-    expect(DEFAULT_GITHUB_REPO).toBe('emiir14/LocalTrans');
-    expect(getConfiguredGithubRepo()).toBe('emiir14/LocalTrans');
+  it('defaults GitHub releases repo to emiir14/OdontoHelper when no env or local override is set', () => {
+    expect(DEFAULT_GITHUB_REPO).toBe('emiir14/OdontoHelper');
+    expect(getConfiguredGithubRepo()).toBe('emiir14/OdontoHelper');
   });
 
   it('normalizes GitHub repository slugs and rejects invalid values', () => {

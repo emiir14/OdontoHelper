@@ -91,7 +91,7 @@ export function isNewerVersion(remoteTag: string, currentVersion: string = APP_V
 }
 
 const GITHUB_REPO_STORAGE_KEY = 'escriba_github_repo';
-export const DEFAULT_GITHUB_REPO = 'emiir14/LocalTrans';
+export const DEFAULT_GITHUB_REPO = 'emiir14/OdontoHelper';
 
 export function getConfiguredGithubRepo(): string {
   const envRepo = (import.meta.env?.VITE_GITHUB_REPO as string | undefined)?.trim();

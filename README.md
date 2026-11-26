@@ -68,7 +68,7 @@ O conectá el repositorio directamente en tu panel de control de Vercel (Framewo
 
 ## Descargas y Firma de Código (Windows y Android)
 
-- **Instaladores oficiales (`.exe` para Windows y `.apk` para Android):** [GitHub Releases](https://github.com/emiir14/LocalTrans/releases)
+- **Instaladores oficiales (`.exe` para Windows y `.apk` para Android):** [GitHub Releases](https://github.com/emiir14/OdontoHelper/releases)
 - **Política de Privacidad:** [docs/PRIVACY.md](docs/PRIVACY.md) — Escriba no recopila ni envía datos ni audio del usuario a ningún servidor externo; todo se procesa y guarda localmente en el equipo.
 
 Free code signing on Windows provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).

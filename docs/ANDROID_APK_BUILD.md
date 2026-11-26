@@ -6,7 +6,7 @@ Escriba para Android utiliza **Tauri v2 Mobile** (ARM64) empaquetando la aplicac
 
 ## Cómo generar `Escriba.apk` gratis en GitHub Actions
 
-1. Subí tus cambios al repositorio `emiir14/LocalTrans`.
+1. Subí tus cambios al repositorio `emiir14/OdontoHelper`.
 2. En GitHub, abrí **Actions → Build Escriba Android (.apk) → Run workflow**.
 3. Verificá que `release_tag` coincida con la versión que quieras publicar (por ejemplo `v1.0.1`) y tocá **Run workflow**.
 4. En unos minutos GitHub va a compilar, alinear, firmar y publicar **`Escriba.apk`** directamente en **Releases**.
