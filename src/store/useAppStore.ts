@@ -85,6 +85,7 @@ import {
   WhisperTranscriptionEngine,
 } from '../core/transcription/engine';
 import { BackgroundChunkTranscriber } from '../core/transcription/backgroundQueue';
+import { pickPendingTranscriptionSession } from '../core/transcription/pendingResume';
 import { checkModelCacheStatus, ModelCacheStatus } from '../core/transcription/modelCache';
 import { PipelineProgress, TranscriptionPipeline } from '../core/transcription/pipeline';
 import { getDefaultModelTier, shouldShowDownloadsTab } from '../core/runtime/platform';
@@ -305,6 +306,7 @@ interface AppState {
   transcribingSessionId: string | null;
   transcriptionProgress: PipelineProgress | null;
   transcriptionFallbackNotice: string | null;
+  autoResumeSuppressed: boolean;
   modelCacheStatuses: Record<'balanced' | 'max', ModelCacheStatus | null>;
   downloadingModelTier: 'balanced' | 'max' | null;
   modelDownloadProgress: number;
@@ -400,6 +402,7 @@ interface AppState {
     options?: { forceRetranscribe?: boolean; modeOverride?: TranscriptionMode }
   ) => Promise<void>;
   cancelTranscription: () => void;
+  autoResumePendingTranscription: (preferredSessionId?: string) => Promise<void>;
   updateSessionMeta: (
     sessionId: string,
     patch: { title?: string; reference?: string; patientId?: string }
@@ -600,6 +603,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   transcribingSessionId: null,
   transcriptionProgress: null,
   transcriptionFallbackNotice: null,
+  autoResumeSuppressed: false,
   modelCacheStatuses: { balanced: null, max: null },
   downloadingModelTier: null,
   modelDownloadProgress: 0,
@@ -791,6 +795,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         }, 1500);
       }
+
+      // Resume any transcription that was pending before a reload or that was
+      // interrupted when the app closed.
+      void get().autoResumePendingTranscription();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'AUTH_REQUIRED') {
@@ -1255,6 +1263,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const ws = get().workspace;
     if (!ws) return;
 
+    // A new recording re-enables automatic resumption for future pending sessions.
+    set({ autoResumeSuppressed: false });
     backgroundChunkTranscriber.resetSessionContext();
     const isQuick = Boolean(options.isQuickDictation);
     const intakeTarget = options.intakeTarget || 'consultation';
@@ -1616,9 +1626,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   stopRecording: async () => {
     const controller = get().recordingController;
-    const wasQuickDictation = get().isQuickDictationMode;
-    const wasAppending = Boolean(get().appendingToSessionId);
-    const intakeTarget = get().activeIntakeRecordingTarget;
 
     if (controller) {
       const finishedSession = await controller.stopRecording();
@@ -1633,14 +1640,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
 
       await get().loadSessions();
+      get().setView('detail', finishedSession.id);
 
-      const settings = get().settings;
-      if (settings?.autoTranscribeOnStop || wasQuickDictation || wasAppending || intakeTarget) {
-        get().setView('detail', finishedSession.id);
-        get().startTranscription(finishedSession.id);
-      } else {
-        get().setView('detail', finishedSession.id);
-      }
+      // Always resume the just-finished session once recording stopped, regardless
+      // of the legacy `autoTranscribeOnStop` setting.
+      void get().autoResumePendingTranscription(finishedSession.id);
     }
   },
 
@@ -1695,6 +1699,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ unclosedSession: null });
     get().showToast('Grabación recuperada con éxito', 'success');
     get().setView('detail', session.id);
+    await get().loadSessions();
+    void get().autoResumePendingTranscription(session.id);
   },
 
   dismissRecovery: async () => {
@@ -1709,6 +1715,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   startTranscription: async (sessionId: string, options = {}) => {
     const ws = get().workspace;
     if (!ws) return;
+
+    // Any explicit start (manual resume or automatic) cancels a previous user stop.
+    if (get().autoResumeSuppressed) {
+      set({ autoResumeSuppressed: false });
+    }
 
     // Prevent concurrent pipeline collision if a transcription is already running
     if (get().transcribingSessionId) {
@@ -1748,7 +1759,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     });
 
-    await wakeLockManager.acquire('transcription');
+    const wakeLockReason = `transcription_${sessionId}_${Date.now()}`;
+    await wakeLockManager.acquire(wakeLockReason);
     try {
       await backgroundChunkTranscriber.waitForIdle({
         maxWaitMs: 3500,
@@ -1763,9 +1775,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         sessionId,
         ws.id,
         (prog) => {
+          if (get().transcriptionPipeline !== pipeline) return;
           set({ transcriptionProgress: prog });
         },
         (newSegment) => {
+          if (get().transcriptionPipeline !== pipeline) return;
+          if (get().currentSessionId !== sessionId) return;
           set((state) => {
             const exists = state.activeTranscript.some((s) => s.id === newSegment.id);
             const updated = exists ? state.activeTranscript : [...state.activeTranscript, newSegment];
@@ -1780,14 +1795,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       );
 
+      // A newer pipeline took over while this one was running: let it own the state.
+      if (get().transcriptionPipeline !== pipeline) {
+        return;
+      }
+
+      const isCurrentSession = get().currentSessionId === sessionId;
       set({
-        activeTranscript: segments,
+        ...(isCurrentSession ? { activeTranscript: segments } : {}),
         transcribingSessionId: null,
         transcriptionProgress: null,
         transcriptionPipeline: null,
       });
 
-      await get().loadSessionDetail(sessionId);
+      if (isCurrentSession) {
+        await get().loadSessionDetail(sessionId);
+      }
       await get().loadSessions();
       await get().refreshModelCacheStatuses();
       await get().logActivity(
@@ -1843,20 +1866,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error en la transcripción';
       console.error('Transcription error:', err);
-      set({
-        transcribingSessionId: null,
-        transcriptionProgress: null,
-        transcriptionPipeline: null,
-      });
-      if (!msg.includes('cancelada')) {
-        await sessionRepo.update(sessionId, { status: 'error', error: msg });
+
+      // Ignore failures from a pipeline that was already superseded by a newer one.
+      if (get().transcriptionPipeline === pipeline) {
+        set({
+          transcribingSessionId: null,
+          transcriptionProgress: null,
+          transcriptionPipeline: null,
+        });
+        if (!msg.includes('cancelada')) {
+          await sessionRepo.update(sessionId, { status: 'error', error: msg });
+        }
+        if (get().currentSessionId === sessionId) {
+          await get().loadSessionDetail(sessionId);
+        }
+        await get().loadSessions();
+        get().showToast(msg, msg.includes('cancelada') ? 'info' : 'warning');
       }
-      await get().loadSessionDetail(sessionId);
-      await get().loadSessions();
-      get().showToast(msg, msg.includes('cancelada') ? 'info' : 'warning');
     } finally {
-      await wakeLockManager.release('transcription');
+      await wakeLockManager.release(wakeLockReason);
     }
+
+    // Continue with the next pending session, if any, so pending audio is never
+    // left waiting for a manual click. Runs after the wake lock release so the
+    // next transcription acquires it cleanly.
+    void get().autoResumePendingTranscription();
   },
 
   cancelTranscription: () => {
@@ -1864,13 +1898,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     const sessionId = get().transcribingSessionId;
     backgroundChunkTranscriber.clearAllPending();
 
+    if (pipeline || sessionId) {
+      // The user explicitly stopped transcription: do not immediately restart it.
+      // Starting a new recording or pressing resume clears this guard.
+      set({ autoResumeSuppressed: true });
+    }
+
     if (pipeline) {
       pipeline.cancel();
       const engine = getSharedWhisperEngine();
       if (engine instanceof WhisperTranscriptionEngine && engine.isLoadInProgress()) {
         engine.abortLoad();
       }
-      wakeLockManager.release('transcription').catch(() => {});
       set({
         transcribingSessionId: null,
         transcriptionProgress: null,
@@ -1881,6 +1920,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       get().showToast('Transcripción detenida', 'info');
     }
+  },
+
+  autoResumePendingTranscription: async (preferredSessionId?: string) => {
+    const state = get();
+    if (state.authRequired || !state.workspace) return;
+    if (state.isRecording || state.recordingController) return;
+    if (state.transcribingSessionId) return;
+    if (state.autoResumeSuppressed) return;
+
+    const nextSession = pickPendingTranscriptionSession(state.sessions, {
+      preferredSessionId,
+      localAudioAvailability: state.localAudioAvailability,
+    });
+    if (!nextSession) return;
+
+    await get().startTranscription(nextSession.id);
   },
 
   updateSessionMeta: async (
@@ -2063,6 +2118,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().loadSessions();
       get().setView('detail', finished.id);
       get().showToast('Audio importado correctamente', 'success');
+      void get().autoResumePendingTranscription(finished.id);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al importar audio';
       console.error('Import error:', err);

@@ -937,29 +937,14 @@ export const SettingsView: React.FC = () => {
             </button>
           </div>
 
-          {/* Auto Transcribe on Stop Toggle */}
-          <div className="flex items-center justify-between gap-4 pt-4">
-            <div>
-              <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                Transcribir automáticamente al detener la grabación
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Inicia la conversión a texto de inmediato apenas finaliza la consulta.
-              </p>
+          {/* Automatic pending-transcription resume (always on) */}
+          <div className="pt-4">
+            <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+              Reanudación automática de transcripciones
             </div>
-            <button
-              onClick={() => updateSettings({ autoTranscribeOnStop: !settings?.autoTranscribeOnStop })}
-              className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors shrink-0 ${
-                settings?.autoTranscribeOnStop ? 'bg-teal-600' : 'bg-slate-300 dark:bg-slate-700'
-              }`}
-              aria-label="Alternar transcripción automática"
-            >
-              <div
-                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                  settings?.autoTranscribeOnStop ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-lg leading-relaxed">
+              Si queda una transcripción pendiente, se reanuda sola cuando no estás grabando.
+            </p>
           </div>
 
           {/* Progressive Background Transcription Toggle */}
