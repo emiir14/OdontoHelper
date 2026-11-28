@@ -495,7 +495,7 @@ export class WhisperTranscriptionEngine implements ITranscriptionEngine {
             this.forceWasmForSession = true;
             this.activeBackend = 'wasm';
             this.onCorruptionFallback?.(
-              'El acelerador WebGPU no respondió a tiempo. Se cambió automáticamente a CPU (WASM).'
+              'el acelerador WebGPU no respondió a tiempo.'
             );
             const config = TIER_CONFIGS[this.resolvedTier];
             await this.initWorker(

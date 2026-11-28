@@ -31,6 +31,7 @@ import {
   CalendarDays,
   Laptop,
   RotateCcw as DiscardIcon,
+  X,
 } from 'lucide-react';
 import {
   buildDraftClinicalNote,
@@ -79,6 +80,7 @@ export const DetailView: React.FC = () => {
     transcribingSessionId,
     transcriptionProgress,
     transcriptionFallbackNotice,
+    dismissTranscriptionFallbackNotice,
     updateSegmentText,
     updateSegmentSpeaker,
     deleteSession,
@@ -855,9 +857,18 @@ export const DetailView: React.FC = () => {
 
       {/* Fallback Notice */}
       {transcriptionFallbackNotice && (
-        <div className="no-print shrink-0 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span>{transcriptionFallbackNotice}</span>
+        <div className="no-print shrink-0 p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <span className="flex-1">{transcriptionFallbackNotice}</span>
+          <button
+            type="button"
+            onClick={dismissTranscriptionFallbackNotice}
+            className="p-1 -m-1 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors shrink-0"
+            aria-label="Cerrar aviso"
+            title="Cerrar aviso"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
@@ -1315,7 +1326,7 @@ export const DetailView: React.FC = () => {
                 }`}
               >
                 <FileText className="w-3.5 h-3.5 text-teal-600" />
-                <span>Transcripción ({activeTranscript.length})</span>
+                <span>Transcripción</span>
               </button>
               <button
                 type="button"

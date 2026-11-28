@@ -403,6 +403,7 @@ interface AppState {
   discardRecording: () => Promise<void>;
   recoverRecording: (session: Session) => Promise<void>;
   dismissRecovery: () => Promise<void>;
+  dismissTranscriptionFallbackNotice: () => void;
   startTranscription: (
     sessionId: string,
     options?: { forceRetranscribe?: boolean; modeOverride?: TranscriptionMode }
@@ -1718,6 +1719,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  dismissTranscriptionFallbackNotice: () => {
+    set({ transcriptionFallbackNotice: null });
+  },
+
   startTranscription: async (sessionId: string, options = {}) => {
     const ws = get().workspace;
     if (!ws) return;
@@ -1744,8 +1749,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       settingsRepo,
       {
         onCorruptionFallback: (reason) => {
+          const detail = (reason || 'el acelerador WebGPU no respondió a tiempo').trim();
+          const normalized = `${detail.charAt(0).toLowerCase()}${detail.slice(1)}`;
+          const withPeriod = normalized.endsWith('.') ? normalized : `${normalized}.`;
           set({
-            transcriptionFallbackNotice: `WebGPU generó salida o latencia inestable (${reason}). Se cambió automáticamente a WASM para garantizar fidelidad.`,
+            transcriptionFallbackNotice: `Se cambió automáticamente a CPU (WASM): ${withPeriod} La transcripción continúa con normalidad.`,
           });
         },
       }
@@ -1754,6 +1762,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       transcriptionPipeline: pipeline,
       transcribingSessionId: sessionId,
+      transcriptionFallbackNotice: null,
       ...(options.forceRetranscribe ? { activeTranscript: [] } : {}),
       transcriptionProgress: {
         sessionId,
