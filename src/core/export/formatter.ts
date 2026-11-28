@@ -74,12 +74,38 @@ export const ExportFormatter = {
     if (session.clinicalNote) {
       const n = session.clinicalNote;
       lines.push('## Ficha Clínica Estructurada', '');
+      if (n.patient?.fullName) lines.push(`- **Paciente:** ${n.patient.fullName}`);
+      if (n.patient?.documentNumber) {
+        lines.push(
+          `- **Documento:** ${n.patient.documentType || 'CI'} ${n.patient.documentNumber}`
+        );
+      }
+      if (n.consultationDate) {
+        lines.push(
+          `- **Fecha de consulta:** ${n.consultationDate}${n.consultationTime ? ` ${n.consultationTime} hs` : ''}`
+        );
+      }
+      if (n.professionalName) {
+        lines.push(
+          `- **Profesional:** ${n.professionalName}${n.professionalLicense ? ` · Mat. ${n.professionalLicense}` : ''}`
+        );
+      }
       if (n.detectedTeeth.length > 0) lines.push(`- **Piezas FDI:** ${n.detectedTeeth.join(', ')}`);
       if (n.chiefComplaint) lines.push(`- **Motivo / Relato:** ${n.chiefComplaint}`);
+      if (n.currentIllness) lines.push(`- **Enfermedad actual:** ${n.currentIllness}`);
+      if (n.medicalHistory) lines.push(`- **Antecedentes:** ${n.medicalHistory}`);
+      if (n.allergies) lines.push(`- **Alergias:** ${n.allergies}`);
+      if (n.medications) lines.push(`- **Medicación habitual:** ${n.medications}`);
+      if (n.extraoralExam) lines.push(`- **Examen extraoral:** ${n.extraoralExam}`);
       if (n.findings) lines.push(`- **Hallazgos:** ${n.findings}`);
+      if (n.diagnosis) lines.push(`- **Diagnóstico:** ${n.diagnosis}`);
+      if (n.treatmentPlan) lines.push(`- **Plan de tratamiento:** ${n.treatmentPlan}`);
       if (n.procedure) lines.push(`- **Procedimiento:** ${n.procedure}`);
+      if (n.anesthesia) lines.push(`- **Anestesia:** ${n.anesthesia}`);
       if (n.indications) lines.push(`- **Indicaciones:** ${n.indications}`);
       if (n.nextVisit) lines.push(`- **Próximo control:** ${n.nextVisit}`);
+      if (n.observations) lines.push(`- **Observaciones:** ${n.observations}`);
+      lines.push(`- **Consentimiento informado:** ${n.consentGiven ? 'Sí' : 'No registrado'}`);
       lines.push('');
     }
 

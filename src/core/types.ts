@@ -29,6 +29,45 @@ export interface Profile {
 
 export type ClinicalTemplateId = 'general' | 'endodoncia' | 'operatoria' | 'cirugia' | 'periodoncia';
 
+export type ClinicalNoteDocumentType = 'CI' | 'DNI' | 'Pasaporte' | 'Otro';
+
+export type ClinicalNoteConsultationType =
+  | 'primera_consulta'
+  | 'control'
+  | 'urgencia'
+  | 'tratamiento'
+  | 'interconsulta';
+
+/**
+ * Snapshot de los datos de filiación del paciente al momento de la consulta.
+ * Se guarda dentro de la ficha para preservar la información tal como estaba
+ * registrada (trazabilidad de la historia clínica).
+ */
+export interface ClinicalNotePatient {
+  patientId?: string;
+  fullName: string;
+  documentType?: ClinicalNoteDocumentType;
+  documentNumber?: string;
+  birthDate?: string;
+  age?: string;
+  gender?: 'F' | 'M' | 'X';
+  phone?: string;
+  secondaryPhone?: string;
+  email?: string;
+  address?: string;
+  insuranceProvider?: string;
+  insuranceNumber?: string;
+  occupation?: string;
+  maritalStatus?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+}
+
+/**
+ * Ficha clínica odontológica (Uruguay).
+ * Los campos originales se mantienen por compatibilidad con fichas ya guardadas.
+ * Los campos nuevos son opcionales para no romper registros previos.
+ */
 export interface ClinicalNote {
   templateId: ClinicalTemplateId;
   detectedTeeth: string[];
@@ -38,6 +77,36 @@ export interface ClinicalNote {
   indications: string;
   nextVisit: string;
   updatedAt: number;
+
+  /** Datos de filiación del paciente. */
+  patient?: ClinicalNotePatient;
+  /** Fecha de la consulta en formato YYYY-MM-DD. */
+  consultationDate?: string;
+  /** Hora de la consulta en formato HH:mm. */
+  consultationTime?: string;
+  consultationType?: ClinicalNoteConsultationType;
+  /** Relato de la enfermedad actual (anamnesis próxima). */
+  currentIllness?: string;
+  /** Antecedentes médicos, quirúrgicos y familiares relevantes. */
+  medicalHistory?: string;
+  allergies?: string;
+  /** Medicación habitual del paciente. */
+  medications?: string;
+  /** Examen extraoral: ATM, ganglios, mucosa, presión arterial, etc. */
+  extraoralExam?: string;
+  /** Diagnóstico presuntivo / definitivo (puede incluir código CIE-10). */
+  diagnosis?: string;
+  /** Plan de tratamiento integral. */
+  treatmentPlan?: string;
+  /** Técnica anestésica y fármacos utilizados. */
+  anesthesia?: string;
+  observations?: string;
+  professionalName?: string;
+  professionalSpecialty?: string;
+  /** Matrícula profesional (MSP). */
+  professionalLicense?: string;
+  consentGiven?: boolean;
+  consentNotes?: string;
 }
 
 export interface Session {
@@ -171,6 +240,11 @@ export interface PatientProfileMeta {
   physicalExam?: PatientPhysicalExam;
   nextControlDate?: string;
   nextControlNote?: string;
+  documentType?: ClinicalNoteDocumentType;
+  occupation?: string;
+  maritalStatus?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
 }
 
 export interface PatientAnamnesis {
@@ -206,6 +280,11 @@ export interface Patient {
   photoDataUrl?: string;
   insuranceProvider?: string;
   insuranceNumber?: string;
+  documentType?: ClinicalNoteDocumentType;
+  occupation?: string;
+  maritalStatus?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
   allergies?: string;
   medicalHistory?: string;
   chiefComplaint?: string;

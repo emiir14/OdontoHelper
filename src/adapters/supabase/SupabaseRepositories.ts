@@ -229,6 +229,11 @@ function mapPatient(row: Record<string, unknown>): Patient {
     photoDataUrl: meta.photoDataUrl,
     insuranceProvider: (row.insurance_provider as string | null) ?? undefined,
     insuranceNumber: (row.insurance_number as string | null) ?? undefined,
+    documentType: meta.documentType,
+    occupation: meta.occupation,
+    maritalStatus: meta.maritalStatus,
+    emergencyContactName: meta.emergencyContactName,
+    emergencyContactPhone: meta.emergencyContactPhone,
     allergies: (row.allergies as string | null) ?? undefined,
     medicalHistory: (row.medical_history as string | null) ?? undefined,
     chiefComplaint: (row.chief_complaint as string | null) ?? undefined,
@@ -1071,7 +1076,12 @@ export class SupabasePatientRepository {
       'photoDataUrl' in patch ||
       'physicalExam' in patch ||
       'nextControlDate' in patch ||
-      'nextControlNote' in patch;
+      'nextControlNote' in patch ||
+      'documentType' in patch ||
+      'occupation' in patch ||
+      'maritalStatus' in patch ||
+      'emergencyContactName' in patch ||
+      'emergencyContactPhone' in patch;
     if (patch.anamnesis !== undefined || hasMetaPatch) {
       const existing = await this.getById(id);
       payload.anamnesis = packPatientAnamnesis(patch, existing?.anamnesis) ?? null;

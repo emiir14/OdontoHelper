@@ -70,6 +70,8 @@ create table if not exists public.patients (
   deleted_at bigint
 );
 
+-- anamnesis JSONB incluye _profileMeta: documentType, occupation, maritalStatus,
+-- emergencyContactName, emergencyContactPhone, physicalExam, nextControlDate/Note.
 alter table public.patients add column if not exists anamnesis jsonb;
 
 -- 4. Proveedores, laboratorios y especialistas

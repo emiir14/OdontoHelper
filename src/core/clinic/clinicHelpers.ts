@@ -627,9 +627,23 @@ export function packPatientAnamnesis(
   if ('secondaryPhone' in patient) nextMeta.secondaryPhone = patient.secondaryPhone;
   if ('groupTag' in patient) nextMeta.groupTag = patient.groupTag;
   if ('photoDataUrl' in patient) nextMeta.photoDataUrl = patient.photoDataUrl;
-  if ('physicalExam' in patient) nextMeta.physicalExam = patient.physicalExam;
+  if ('physicalExam' in patient) {
+    nextMeta.physicalExam = {
+      ...(existingMeta.physicalExam || {}),
+      ...(patient.physicalExam || {}),
+    };
+  }
   if ('nextControlDate' in patient) nextMeta.nextControlDate = patient.nextControlDate;
   if ('nextControlNote' in patient) nextMeta.nextControlNote = patient.nextControlNote;
+  if ('documentType' in patient) nextMeta.documentType = patient.documentType;
+  if ('occupation' in patient) nextMeta.occupation = patient.occupation;
+  if ('maritalStatus' in patient) nextMeta.maritalStatus = patient.maritalStatus;
+  if ('emergencyContactName' in patient) {
+    nextMeta.emergencyContactName = patient.emergencyContactName;
+  }
+  if ('emergencyContactPhone' in patient) {
+    nextMeta.emergencyContactPhone = patient.emergencyContactPhone;
+  }
 
   const hasMeta = Object.values(nextMeta).some((v) => v !== undefined && v !== null && v !== '');
   if (hasMeta) {

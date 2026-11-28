@@ -21,6 +21,9 @@ export const PatientEditModal: React.FC<PatientEditModalProps> = ({ patient, onC
 
   const [fullName, setFullName] = useState(patient.fullName || '');
   const [dni, setDni] = useState(patient.dni || '');
+  const [documentType, setDocumentType] = useState<Patient['documentType']>(
+    patient.documentType || 'CI'
+  );
   const [hasBirthDate, setHasBirthDate] = useState(Boolean(patient.birthDate));
   const [birthDate, setBirthDate] = useState(patient.birthDate || '');
   const [gender, setGender] = useState<'F' | 'M' | 'X' | undefined>(patient.gender);
@@ -31,6 +34,14 @@ export const PatientEditModal: React.FC<PatientEditModalProps> = ({ patient, onC
   const [groupTag, setGroupTag] = useState(patient.groupTag || '');
   const [insuranceProvider, setInsuranceProvider] = useState(patient.insuranceProvider || '');
   const [insuranceNumber, setInsuranceNumber] = useState(patient.insuranceNumber || '');
+  const [occupation, setOccupation] = useState(patient.occupation || '');
+  const [maritalStatus, setMaritalStatus] = useState(patient.maritalStatus || '');
+  const [emergencyContactName, setEmergencyContactName] = useState(
+    patient.emergencyContactName || ''
+  );
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
+    patient.emergencyContactPhone || ''
+  );
   const [allergies, setAllergies] = useState(patient.allergies || '');
   const [medicalHistory, setMedicalHistory] = useState(patient.medicalHistory || '');
   const [chiefComplaint, setChiefComplaint] = useState(patient.chiefComplaint || '');
@@ -72,6 +83,7 @@ export const PatientEditModal: React.FC<PatientEditModalProps> = ({ patient, onC
       const patch: Partial<PatientDraftInput> = {
         fullName: fullName.trim(),
         dni: dni.trim() || undefined,
+        documentType,
         birthDate: nextBirth,
         age: nextAgeNum !== null ? `${nextAgeNum} años` : patient.age,
         gender,
@@ -80,6 +92,10 @@ export const PatientEditModal: React.FC<PatientEditModalProps> = ({ patient, onC
         email: email.trim() || undefined,
         address: address.trim() || undefined,
         groupTag: groupTag.trim() || undefined,
+        occupation: occupation.trim() || undefined,
+        maritalStatus: maritalStatus.trim() || undefined,
+        emergencyContactName: emergencyContactName.trim() || undefined,
+        emergencyContactPhone: emergencyContactPhone.trim() || undefined,
         photoDataUrl,
         insuranceProvider: insuranceProvider.trim() || undefined,
         insuranceNumber: insuranceNumber.trim() || undefined,
@@ -158,7 +174,22 @@ export const PatientEditModal: React.FC<PatientEditModalProps> = ({ patient, onC
           </div>
 
           <div>
-            <label className={labelCompactClass}>CI / ID</label>
+            <label className={labelCompactClass}>Tipo de documento</label>
+            <select
+              value={documentType || 'CI'}
+              onChange={(e) => setDocumentType(e.target.value as Patient['documentType'])}
+              className={inputClass}
+            >
+              {(['CI', 'DNI', 'Pasaporte', 'Otro'] as const).map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={labelCompactClass}>Cédula de identidad</label>
             <input
               type="text"
               value={dni}
@@ -314,8 +345,54 @@ export const PatientEditModal: React.FC<PatientEditModalProps> = ({ patient, onC
                     type="text"
                     value={insuranceProvider}
                     onChange={(e) => setInsuranceProvider(e.target.value)}
-                    placeholder="Ej: CASMU, Particular"
+                    placeholder="Ej: CASMU, FONASA, Particular"
                     className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCompactClass}>Ocupación</label>
+                  <input
+                    type="text"
+                    value={occupation}
+                    onChange={(e) => setOccupation(e.target.value)}
+                    placeholder="Ej: Docente"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelCompactClass}>Estado civil</label>
+                  <input
+                    type="text"
+                    value={maritalStatus}
+                    onChange={(e) => setMaritalStatus(e.target.value)}
+                    placeholder="Ej: Casada/o"
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCompactClass}>Contacto de emergencia</label>
+                  <input
+                    type="text"
+                    value={emergencyContactName}
+                    onChange={(e) => setEmergencyContactName(e.target.value)}
+                    placeholder="Nombre y vínculo"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelCompactClass}>Teléfono de emergencia</label>
+                  <input
+                    type="tel"
+                    value={emergencyContactPhone}
+                    onChange={(e) => setEmergencyContactPhone(e.target.value)}
+                    placeholder="Ej: 098 123 456"
+                    className={inputMonoClass}
                   />
                 </div>
               </div>

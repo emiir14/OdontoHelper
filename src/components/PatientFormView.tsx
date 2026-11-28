@@ -86,6 +86,7 @@ export const PatientFormView: React.FC = () => {
       ? {
           fullName: editingPatient.fullName || '',
           dni: editingPatient.dni || '',
+          documentType: editingPatient.documentType,
           birthDate: editingPatient.birthDate || '',
           age: editingPatient.age || '',
           gender: editingPatient.gender,
@@ -94,6 +95,10 @@ export const PatientFormView: React.FC = () => {
           email: editingPatient.email || '',
           address: editingPatient.address || '',
           groupTag: editingPatient.groupTag || '',
+          occupation: editingPatient.occupation || '',
+          maritalStatus: editingPatient.maritalStatus || '',
+          emergencyContactName: editingPatient.emergencyContactName || '',
+          emergencyContactPhone: editingPatient.emergencyContactPhone || '',
           insuranceProvider: editingPatient.insuranceProvider || '',
           insuranceNumber: editingPatient.insuranceNumber || '',
           allergies: editingPatient.allergies || '',
@@ -301,12 +306,32 @@ export const PatientFormView: React.FC = () => {
             </div>
 
             <div>
-              <label className={labelClass}>DNI / Cédula</label>
+              <label className={labelClass}>Tipo de documento</label>
+              <select
+                value={form.documentType || 'CI'}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    documentType: e.target.value as PatientDraftInput['documentType'],
+                  })
+                }
+                className={inputClass}
+              >
+                {(['CI', 'DNI', 'Pasaporte', 'Otro'] as const).map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Cédula de identidad</label>
               <input
                 type="text"
                 value={form.dni || ''}
                 onChange={(e) => setForm({ ...form, dni: e.target.value })}
-                placeholder="Ej: 34.567.890"
+                placeholder="Ej: 3.456.789-0"
                 className={`${inputClass} font-mono tabular-nums`}
               />
             </div>
@@ -408,7 +433,7 @@ export const PatientFormView: React.FC = () => {
                 type="text"
                 value={form.insuranceProvider || ''}
                 onChange={(e) => setForm({ ...form, insuranceProvider: e.target.value })}
-                placeholder="Ej: OSDE 310 / Swiss Medical / Particular"
+                placeholder="FONASA / Mutualista / ASSE / Particular"
                 className={inputClass}
               />
             </div>
@@ -420,6 +445,50 @@ export const PatientFormView: React.FC = () => {
                 value={form.insuranceNumber || ''}
                 onChange={(e) => setForm({ ...form, insuranceNumber: e.target.value })}
                 placeholder="N° de credencial"
+                className={`${inputClass} font-mono tabular-nums`}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Ocupación</label>
+              <input
+                type="text"
+                value={form.occupation || ''}
+                onChange={(e) => setForm({ ...form, occupation: e.target.value })}
+                placeholder="Ej: Docente"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Estado civil</label>
+              <input
+                type="text"
+                value={form.maritalStatus || ''}
+                onChange={(e) => setForm({ ...form, maritalStatus: e.target.value })}
+                placeholder="Ej: Casada/o"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Contacto de emergencia</label>
+              <input
+                type="text"
+                value={form.emergencyContactName || ''}
+                onChange={(e) => setForm({ ...form, emergencyContactName: e.target.value })}
+                placeholder="Nombre y vínculo"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Teléfono de emergencia</label>
+              <input
+                type="tel"
+                value={form.emergencyContactPhone || ''}
+                onChange={(e) => setForm({ ...form, emergencyContactPhone: e.target.value })}
+                placeholder="Ej: 098 123 456"
                 className={`${inputClass} font-mono tabular-nums`}
               />
             </div>

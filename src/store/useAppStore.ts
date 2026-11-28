@@ -53,6 +53,12 @@ import {
 } from '../core/clinic/clinicHelpers';
 import { generateCalendarFeedToken } from '../core/clinic/calendarFeed';
 import {
+  buildPatientFieldsFromClinicalNote,
+  clinicalNotePatientName,
+  findPatientForClinicalNote,
+} from '../core/clinical/clinicalRecord';
+import { CLINICAL_TEMPLATES } from '../core/clinical/clinicalTemplates';
+import {
   GoogleCalendarEventItem,
   deleteGoogleCalendarEvent,
   getGoogleCalendarAccessToken,
@@ -1952,13 +1958,147 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveClinicalNote: async (sessionId: string, note: ClinicalNote) => {
-    await sessionRepo.update(sessionId, { clinicalNote: note });
+    const ws = get().workspace;
+    const session =
+      get().sessions.find((s) => s.id === sessionId) ||
+      (get().activeSession?.id === sessionId ? get().activeSession : null);
+    if (!ws || !session) {
+      get().showToast('No se encontró la consulta para guardar la ficha clínica.', 'warning');
+      return;
+    }
+
+    const patientName = clinicalNotePatientName(note, session);
+    const patientFields = buildPatientFieldsFromClinicalNote(note);
+    let patient = findPatientForClinicalNote(note, session, get().patients);
+    let createdPatient = false;
+
+    if (patient) {
+      if (Object.keys(patientFields).length > 0) {
+        await get().updatePatient(patient.id, patientFields);
+      }
+    } else if (patientName) {
+      const created = await get().createPatient({
+        ...patientFields,
+        fullName: patientName,
+        sourceSessionId: sessionId,
+      } as PatientDraftInput);
+      if (created) {
+        patient = created;
+        createdPatient = true;
+      }
+    }
+
+    const linkedPatientId = patient?.id;
+    const professional = resolvePractitionerDisplay(
+      get().professionals,
+      get().activeProfessionalId,
+      get().profile
+    );
+
+    const savedNote: ClinicalNote = {
+      ...note,
+      patient: {
+        ...(note.patient || { fullName: patientName }),
+        fullName: note.patient?.fullName?.trim() || patientName,
+        patientId: linkedPatientId,
+      },
+      professionalName: note.professionalName || professional.name,
+      professionalSpecialty: note.professionalSpecialty || professional.specialty,
+      professionalLicense: note.professionalLicense || professional.licenseNumber,
+      updatedAt: Date.now(),
+    };
+
+    await sessionRepo.update(sessionId, {
+      clinicalNote: savedNote,
+      ...(linkedPatientId ? { patientId: linkedPatientId } : {}),
+    });
     const updated = await sessionRepo.getById(sessionId);
     if (updated && get().activeSession?.id === sessionId) {
       set({ activeSession: updated });
     }
     await get().loadSessions();
-    get().showToast('Ficha clínica guardada', 'success');
+
+    // Register the encounter in the patient's chronological history.
+    if (linkedPatientId) {
+      const templateLabel =
+        CLINICAL_TEMPLATES.find((t) => t.id === savedNote.templateId)?.label ||
+        'Consulta odontológica';
+      const procedureLabel =
+        (savedNote.procedure || savedNote.diagnosis || templateLabel)
+          .trim()
+          .split(/[\n.]/)[0]
+          .slice(0, 120) || templateLabel;
+      const description = [
+        savedNote.diagnosis ? `Diagnóstico: ${savedNote.diagnosis}` : '',
+        savedNote.findings ? `Hallazgos: ${savedNote.findings}` : '',
+        savedNote.procedure ? `Procedimiento: ${savedNote.procedure}` : '',
+        savedNote.indications ? `Indicaciones: ${savedNote.indications}` : '',
+        savedNote.nextVisit ? `Próximo control: ${savedNote.nextVisit}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n') || 'Ficha clínica registrada.';
+
+      const now = Date.now();
+      const evolutionPatch: Partial<ClinicalEvolutionEntry> = {
+        patientId: linkedPatientId,
+        date: savedNote.consultationDate || toLocalIsoDate(),
+        toothFdi: savedNote.detectedTeeth.join(', ') || undefined,
+        procedure: procedureLabel,
+        description,
+        highlightColor: 'teal',
+        professionalId: get().activeProfessionalId || undefined,
+        professionalName: savedNote.professionalName || professional.name,
+        sourceSessionId: sessionId,
+        updatedAt: now,
+      };
+
+      const existingEvolution = get().clinicalEvolutions.find(
+        (e) => e.sourceSessionId === sessionId && !e.deletedAt
+      );
+
+      if (existingEvolution) {
+        await evolutionRepo.update(existingEvolution.id, evolutionPatch);
+        set((s) => ({
+          clinicalEvolutions: s.clinicalEvolutions.map((e) =>
+            e.id === existingEvolution.id ? { ...e, ...evolutionPatch, updatedAt: now } : e
+          ),
+        }));
+      } else {
+        const pat = get().patients.find((p) => p.id === linkedPatientId);
+        const entry: ClinicalEvolutionEntry = {
+          id: `evol_${now}_${Math.random().toString(36).slice(2, 6)}`,
+          workspaceId: pat?.workspaceId || ws.id,
+          patientId: linkedPatientId,
+          date: evolutionPatch.date || toLocalIsoDate(),
+          toothFdi: evolutionPatch.toothFdi,
+          procedure: procedureLabel,
+          description,
+          highlightColor: 'teal',
+          professionalId: evolutionPatch.professionalId,
+          professionalName: evolutionPatch.professionalName,
+          sourceSessionId: sessionId,
+          authorUserId: get().authUserId || undefined,
+          authorWorkspaceId: ws.id,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await evolutionRepo.create(entry);
+        set((s) => ({ clinicalEvolutions: [entry, ...s.clinicalEvolutions] }));
+        await get().logActivity(
+          'created',
+          'evolution',
+          `Evolución clínica: ${procedureLabel}${pat ? ` · ${pat.fullName}` : ''}`,
+          entry.id
+        );
+      }
+    }
+
+    const message = createdPatient
+      ? `Ficha guardada y paciente ${patient?.fullName} creado`
+      : linkedPatientId
+      ? 'Ficha clínica guardada y vinculada al paciente'
+      : 'Ficha clínica guardada';
+    get().showToast(message, 'success');
   },
 
   updateSegmentText: async (segmentId: string, newText: string) => {

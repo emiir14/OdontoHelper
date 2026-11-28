@@ -34,17 +34,20 @@ import {
 } from 'lucide-react';
 import {
   buildDraftClinicalNote,
-  CLINICAL_TEMPLATES,
+  buildPatientSnapshot,
+  createEmptyClinicalNote,
   extractFdiTeeth,
   formatClinicalNoteText,
+  hydrateClinicalNote,
 } from '../core/clinical/clinicalTemplates';
-import { downloadTextFile } from '../core/clinic/clinicHelpers';
+import { downloadTextFile, resolvePractitionerDisplay } from '../core/clinic/clinicHelpers';
 import { ExportFormatter, formatTimeDisplay } from '../core/export/formatter';
-import { ClinicalNote, ClinicalTemplateId, TranscriptSegment, TranscriptionMode } from '../core/types';
+import { ClinicalNote, TranscriptSegment, TranscriptionMode } from '../core/types';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../core/utils/localDrafts';
 import { audioStore, useAppStore } from '../store/useAppStore';
 import { AnchoredDropdown } from './ui/AnchoredDropdown';
 import { AutoResizeTextarea } from './ui/AutoResizeTextarea';
+import { ClinicalRecordForm } from './ClinicalRecordForm';
 
 const SPEAKER_CYCLE: Array<string | undefined> = [
   undefined,
@@ -88,6 +91,9 @@ export const DetailView: React.FC = () => {
     applyTranscriptToIntake,
     appointments,
     patients,
+    professionals,
+    activeProfessionalId,
+    profile,
     captureAppointmentFromTranscript,
     setAgendaDate,
     localAudioAvailability,
@@ -123,16 +129,9 @@ export const DetailView: React.FC = () => {
   const [metaTitleInput, setMetaTitleInput] = useState('');
 
   // Local Clinical Note state & auto-saved draft tracking
-  const [noteDraft, setNoteDraft] = useState<ClinicalNote>({
-    templateId: 'general',
-    detectedTeeth: [],
-    chiefComplaint: '',
-    findings: '',
-    procedure: '',
-    indications: '',
-    nextVisit: '',
-    updatedAt: Date.now(),
-  });
+  const [noteDraft, setNoteDraft] = useState<ClinicalNote>(() =>
+    createEmptyClinicalNote()
+  );
   const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
   const [isNoteDirty, setIsNoteDirty] = useState(false);
   const baselineNoteSnapshotRef = useRef<string>('');
@@ -143,34 +142,35 @@ export const DetailView: React.FC = () => {
   const transcriptBottomRef = useRef<HTMLDivElement | null>(null);
   const isTranscribingThisSession = transcribingSessionId === activeSession?.id;
 
+  const linkedPatient = useMemo(
+    () =>
+      activeSession?.patientId
+        ? patients.find((p) => p.id === activeSession.patientId && !p.deletedAt)
+        : undefined,
+    [activeSession?.patientId, patients]
+  );
+
+  const practitioner = useMemo(
+    () => resolvePractitionerDisplay(professionals, activeProfessionalId, profile),
+    [professionals, activeProfessionalId, profile]
+  );
+
   const normalizeNoteForCompare = (n: ClinicalNote) =>
-    JSON.stringify({
-      templateId: n.templateId,
-      detectedTeeth: n.detectedTeeth,
-      chiefComplaint: n.chiefComplaint,
-      findings: n.findings,
-      procedure: n.procedure,
-      indications: n.indications,
-      nextVisit: n.nextVisit,
-    });
+    JSON.stringify({ ...n, updatedAt: 0 });
 
   // Sync ClinicalNote draft when switching session or saving, recovering any unsaved localStorage draft
   useEffect(() => {
     if (!activeSession) return;
-    const baseNote: ClinicalNote = activeSession.clinicalNote
-      ? activeSession.clinicalNote
-      : activeTranscript.length > 0
-      ? buildDraftClinicalNote(activeTranscript, 'general')
-      : {
-          templateId: 'general',
-          detectedTeeth: [],
-          chiefComplaint: '',
-          findings: '',
-          procedure: '',
-          indications: '',
-          nextVisit: '',
-          updatedAt: Date.now(),
-        };
+    const baseNote: ClinicalNote = hydrateClinicalNote(
+      activeSession.clinicalNote
+        ? activeSession.clinicalNote
+        : activeTranscript.length > 0
+        ? buildDraftClinicalNote(activeTranscript, 'general')
+        : createEmptyClinicalNote(),
+      activeSession,
+      linkedPatient,
+      practitioner
+    );
     baselineNoteSnapshotRef.current = normalizeNoteForCompare(baseNote);
 
     const localKey = `detail:clinical_note:${activeSession.id}`;
@@ -193,7 +193,13 @@ export const DetailView: React.FC = () => {
     return () => {
       setDraftDirty(`detail_note:${activeSession.id}`, null);
     };
-  }, [activeSession?.id, activeSession?.clinicalNote]);
+  }, [
+    activeSession?.id,
+    activeSession?.clinicalNote,
+    activeSession?.patientId,
+    linkedPatient?.id,
+    practitioner.name,
+  ]);
 
   // Extract FDI teeth detected across full transcript
   const detectedFdiTeeth = useMemo(() => {
@@ -432,18 +438,78 @@ export const DetailView: React.FC = () => {
   };
 
   const handleAutofillClinicalNote = () => {
-    const draft = buildDraftClinicalNote(activeTranscript, noteDraft.templateId);
+    const draft = hydrateClinicalNote(
+      {
+        ...buildDraftClinicalNote(activeTranscript, noteDraft.templateId),
+        patient: noteDraft.patient,
+        consultationDate: noteDraft.consultationDate,
+        consultationTime: noteDraft.consultationTime,
+        consultationType: noteDraft.consultationType,
+        professionalName: noteDraft.professionalName,
+        professionalSpecialty: noteDraft.professionalSpecialty,
+        professionalLicense: noteDraft.professionalLicense,
+        consentGiven: noteDraft.consentGiven,
+        consentNotes: noteDraft.consentNotes,
+      },
+      activeSession,
+      linkedPatient,
+      practitioner
+    );
     updateNoteDraftWithAutoSave(draft);
     showToast('Ficha autocompletada desde la transcripción local', 'info');
   };
 
+  const handleSelectPatient = (patientId: string) => {
+    const selected = patients.find((p) => p.id === patientId && !p.deletedAt);
+    if (!selected) {
+      updateNoteDraftWithAutoSave((prev) => ({
+        ...prev,
+        patient: {
+          ...(prev.patient || { fullName: '' }),
+          patientId: undefined,
+        },
+      }));
+      return;
+    }
+
+    const snapshot = buildPatientSnapshot(selected, activeSession);
+    updateNoteDraftWithAutoSave((prev) => ({
+      ...prev,
+      patient: snapshot,
+      allergies: prev.allergies || selected.allergies || '',
+      medicalHistory: prev.medicalHistory || selected.medicalHistory || '',
+      chiefComplaint: prev.chiefComplaint || selected.chiefComplaint || '',
+    }));
+    showToast(`Paciente ${selected.fullName} vinculado a la ficha`, 'info');
+  };
+
   const handleSaveClinicalNote = async () => {
-    const noteToSave: ClinicalNote = {
-      ...noteDraft,
-      updatedAt: Date.now(),
-    };
+    const patientName =
+      noteDraft.patient?.fullName?.trim() || activeSession.reference?.trim() || '';
+    if (!patientName) {
+      showToast(
+        'Ingresá el nombre del paciente para guardar la ficha clínica.',
+        'warning'
+      );
+      return;
+    }
+
+    const noteToSave: ClinicalNote = hydrateClinicalNote(
+      {
+        ...noteDraft,
+        patient: {
+          ...(noteDraft.patient || { fullName: patientName }),
+          fullName: patientName,
+        },
+        updatedAt: Date.now(),
+      },
+      activeSession,
+      linkedPatient,
+      practitioner
+    );
     await saveClinicalNote(activeSession.id, noteToSave);
     baselineNoteSnapshotRef.current = normalizeNoteForCompare(noteToSave);
+    setNoteDraft(noteToSave);
     if (noteDraftKey) clearLocalDraft(noteDraftKey);
     if (noteDirtyKey) setDraftDirty(noteDirtyKey, null);
     setRestoredDraftAt(null);
@@ -451,20 +517,16 @@ export const DetailView: React.FC = () => {
   };
 
   const handleDiscardNoteDraft = () => {
-    const baseNote: ClinicalNote = activeSession.clinicalNote
-      ? activeSession.clinicalNote
-      : activeTranscript.length > 0
-      ? buildDraftClinicalNote(activeTranscript, 'general')
-      : {
-          templateId: 'general',
-          detectedTeeth: [],
-          chiefComplaint: '',
-          findings: '',
-          procedure: '',
-          indications: '',
-          nextVisit: '',
-          updatedAt: Date.now(),
-        };
+    const baseNote: ClinicalNote = hydrateClinicalNote(
+      activeSession.clinicalNote
+        ? activeSession.clinicalNote
+        : activeTranscript.length > 0
+        ? buildDraftClinicalNote(activeTranscript, 'general')
+        : createEmptyClinicalNote(),
+      activeSession,
+      linkedPatient,
+      practitioner
+    );
     baselineNoteSnapshotRef.current = normalizeNoteForCompare(baseNote);
     setNoteDraft(baseNote);
     if (noteDraftKey) clearLocalDraft(noteDraftKey);
@@ -490,6 +552,11 @@ export const DetailView: React.FC = () => {
       !audioUrl
   );
 
+  const hasLinkedPatient = Boolean(linkedPatient || noteDraft.patient?.patientId);
+  const willCreatePatient =
+    !hasLinkedPatient &&
+    Boolean(noteDraft.patient?.fullName?.trim() || activeSession.reference?.trim());
+
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 space-y-5 lg:h-full lg:flex lg:flex-col lg:overflow-hidden print:h-auto print:overflow-visible">
       {/* Hidden Audio Player Element */}
@@ -508,50 +575,25 @@ export const DetailView: React.FC = () => {
           <div>
             <div className="text-xl font-bold">OdontoHelper · Registro Clínico Odontológico</div>
             <p className="text-sm text-slate-600 mt-1">
-              Paciente / Referencia: <strong>{activeSession.reference || activeSession.title}</strong>
+              Paciente:{' '}
+              <strong>
+                {noteDraft.patient?.fullName ||
+                  activeSession.reference ||
+                  activeSession.title}
+              </strong>
             </p>
           </div>
           <div className="text-right text-xs text-slate-600">
-            <div>{new Date(activeSession.createdAt).toLocaleDateString('es-AR')}</div>
+            <div>{new Date(activeSession.createdAt).toLocaleDateString('es-UY')}</div>
             <div>Duración: {formatTimeDisplay(activeSession.durationSec)}</div>
           </div>
         </div>
 
-        {(activeSession.clinicalNote || noteDraft.procedure || noteDraft.findings) && (
-          <div className="space-y-2 border border-slate-300 rounded-xl p-4 print-break-inside-avoid">
-            <div className="text-sm font-bold uppercase tracking-wide">Ficha Clínica</div>
-            {noteDraft.detectedTeeth.length > 0 && (
-              <p className="text-xs whitespace-pre-wrap break-words">
-                <strong>Piezas FDI:</strong> {noteDraft.detectedTeeth.join(', ')}
-              </p>
-            )}
-            {noteDraft.chiefComplaint && (
-              <p className="text-xs whitespace-pre-wrap break-words">
-                <strong>Motivo / Relato:</strong> {noteDraft.chiefComplaint}
-              </p>
-            )}
-            {noteDraft.findings && (
-              <p className="text-xs whitespace-pre-wrap break-words">
-                <strong>Hallazgos:</strong> {noteDraft.findings}
-              </p>
-            )}
-            {noteDraft.procedure && (
-              <p className="text-xs whitespace-pre-wrap break-words">
-                <strong>Procedimiento:</strong> {noteDraft.procedure}
-              </p>
-            )}
-            {noteDraft.indications && (
-              <p className="text-xs whitespace-pre-wrap break-words">
-                <strong>Indicaciones:</strong> {noteDraft.indications}
-              </p>
-            )}
-            {noteDraft.nextVisit && (
-              <p className="text-xs whitespace-pre-wrap break-words">
-                <strong>Próximo control:</strong> {noteDraft.nextVisit}
-              </p>
-            )}
-          </div>
-        )}
+        <div className="border border-slate-300 rounded-xl p-4 print-break-inside-avoid">
+          <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-words font-sans">
+            {formatClinicalNoteText(activeSession, noteDraft)}
+          </pre>
+        </div>
 
         <div className="space-y-3">
           <div className="text-sm font-bold uppercase tracking-wide">Transcripción de la consulta</div>
@@ -1339,141 +1381,21 @@ export const DetailView: React.FC = () => {
                 </div>
               )}
 
-              {/* Template Selector */}
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Plantilla odontológica
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {CLINICAL_TEMPLATES.map((tpl) => {
-                    const active = noteDraft.templateId === tpl.id;
-                    return (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        onClick={() =>
-                          updateNoteDraftWithAutoSave((prev) => ({
-                            ...prev,
-                            templateId: tpl.id as ClinicalTemplateId,
-                          }))
-                        }
-                        className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors min-h-[36px] cursor-pointer ${
-                          active
-                            ? 'border-teal-600 bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-200 font-semibold'
-                            : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                        }`}
-                      >
-                        {tpl.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Editable Structured Clinical Fields */}
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    Piezas dentarias (FDI, separadas por coma)
-                  </label>
-                  <AutoResizeTextarea
-                    minRows={1}
-                    value={noteDraft.detectedTeeth.join(', ')}
-                    onChange={(e) =>
-                      updateNoteDraftWithAutoSave((prev) => ({
-                        ...prev,
-                        detectedTeeth: e.target.value
-                          .split(',')
-                          .map((t) => t.trim())
-                          .filter(Boolean),
-                      }))
-                    }
-                    placeholder="Ej: 1.6, 4.8"
-                    className="mt-1 font-mono bg-slate-50 dark:bg-slate-800"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    Motivo de consulta / Relato del paciente
-                  </label>
-                  <AutoResizeTextarea
-                    minRows={2}
-                    value={noteDraft.chiefComplaint}
-                    onChange={(e) =>
-                      updateNoteDraftWithAutoSave((p) => ({ ...p, chiefComplaint: e.target.value }))
-                    }
-                    placeholder="Dolor a la masticación, sensibilidad al frío, control..."
-                    className="mt-1 bg-slate-50 dark:bg-slate-800"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    Hallazgos clínicos / Diagnóstico
-                  </label>
-                  <AutoResizeTextarea
-                    minRows={2}
-                    value={noteDraft.findings}
-                    onChange={(e) =>
-                      updateNoteDraftWithAutoSave((p) => ({ ...p, findings: e.target.value }))
-                    }
-                    placeholder="Caries profunda oclusal, filtración de restauración, periapical sin lesión..."
-                    className="mt-1 bg-slate-50 dark:bg-slate-800"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    Procedimiento realizado
-                  </label>
-                  <AutoResizeTextarea
-                    minRows={3}
-                    value={noteDraft.procedure}
-                    onChange={(e) =>
-                      updateNoteDraftWithAutoSave((p) => ({ ...p, procedure: e.target.value }))
-                    }
-                    placeholder={
-                      CLINICAL_TEMPLATES.find((t) => t.id === noteDraft.templateId)
-                        ?.defaultProcedureHint
-                    }
-                    className="mt-1 bg-slate-50 dark:bg-slate-800"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      Indicaciones / Medicación
-                    </label>
-                    <AutoResizeTextarea
-                      minRows={2}
-                      value={noteDraft.indications}
-                      onChange={(e) =>
-                        updateNoteDraftWithAutoSave((p) => ({ ...p, indications: e.target.value }))
-                      }
-                      placeholder="Ibuprofeno 600 mg c/8h si hay dolor..."
-                      className="mt-1 bg-slate-50 dark:bg-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      Próximo control / Plan
-                    </label>
-                    <AutoResizeTextarea
-                      minRows={2}
-                      value={noteDraft.nextVisit}
-                      onChange={(e) =>
-                        updateNoteDraftWithAutoSave((p) => ({ ...p, nextVisit: e.target.value }))
-                      }
-                      placeholder="Citar en 15 días para obturación definitiva..."
-                      className="mt-1 bg-slate-50 dark:bg-slate-800"
-                    />
-                  </div>
-                </div>
-              </div>
+              <ClinicalRecordForm
+                note={noteDraft}
+                onChange={updateNoteDraftWithAutoSave}
+                patients={patients}
+                session={activeSession}
+                onSelectPatient={handleSelectPatient}
+              />
 
               <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                {willCreatePatient && (
+                  <p className="w-full text-[11px] text-teal-800 dark:text-teal-200 bg-teal-50/80 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/60 rounded-xl px-3 py-2">
+                    Al guardar se creará un paciente nuevo con estos datos y la consulta quedará
+                    vinculada a su historia clínica.
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={handleCopyClinicalNote}
@@ -1488,7 +1410,7 @@ export const DetailView: React.FC = () => {
                   className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors flex items-center gap-1.5 min-h-[44px]"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>Guardar ficha</span>
+                  <span>{willCreatePatient ? 'Guardar ficha y crear paciente' : 'Guardar ficha'}</span>
                 </button>
               </div>
             </div>

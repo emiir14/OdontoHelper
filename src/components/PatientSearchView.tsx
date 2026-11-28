@@ -1733,7 +1733,7 @@ export const PatientSearchView: React.FC = () => {
                       <div className="min-w-0 space-y-1 text-xs">
                         {selectedPatient.dni && (
                           <div className="font-mono tabular-nums font-semibold text-slate-700 dark:text-slate-200">
-                            CI / ID: {selectedPatient.dni}
+                            {selectedPatient.documentType || 'CI'}: {selectedPatient.dni}
                           </div>
                         )}
                         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">

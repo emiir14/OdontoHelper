@@ -29,6 +29,7 @@ import {
   patientRepo,
   professionalRepo,
   providerRepo,
+  sessionRepo,
   treatmentPlanRepo,
   useAppStore,
 } from '../src/store/useAppStore';
@@ -53,6 +54,7 @@ import { REPORT_DEFINITIONS, buildReportData } from '../src/core/clinic/reportEn
 import {
   Appointment,
   ClinicalEvolutionEntry,
+  ClinicalNote,
   FinancialTransaction,
   LabOrder,
   Patient,
@@ -487,6 +489,88 @@ describe('OdontoHelper Clinic Workflows (Personal Profile, Evolution, Budget -> 
     expect(created).not.toBeNull();
     expect(created?.professionalName).toBe('Dr. Marcos');
     expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves a clinical note, creates and links the patient, and records the evolution', async () => {
+    const session: Session = {
+      id: 'sess_ficha_1',
+      workspaceId: 'ws_test',
+      title: 'Consulta nueva',
+      reference: 'Paciente sin ficha',
+      status: 'completed',
+      durationSec: 120,
+      consentGiven: true,
+      audioDeleted: false,
+      createdAt: new Date('2026-11-20T10:30:00').getTime(),
+      updatedAt: new Date('2026-11-20T10:30:00').getTime(),
+    };
+
+    useAppStore.setState({
+      patients: [],
+      sessions: [session],
+      activeSession: session,
+      clinicalEvolutions: [],
+      toastMessage: null,
+    });
+
+    const createPatientSpy = vi.spyOn(patientRepo, 'create').mockResolvedValue(undefined);
+    const updateSessionSpy = vi.spyOn(sessionRepo, 'update').mockResolvedValue(undefined);
+    vi.spyOn(sessionRepo, 'getById').mockResolvedValue({ ...session, patientId: 'pat_new' });
+    vi.spyOn(useAppStore.getState(), 'loadSessions').mockResolvedValue(undefined);
+    const createEvolutionSpy = vi.spyOn(evolutionRepo, 'create').mockResolvedValue(undefined);
+
+    const note: ClinicalNote = {
+      templateId: 'operatoria',
+      detectedTeeth: ['4.6'],
+      chiefComplaint: 'Dolor al morder',
+      findings: 'Caries oclusal profunda',
+      procedure: 'Restauración con composite',
+      indications: 'Ibuprofeno 600 mg c/8h',
+      nextVisit: 'Control en 15 días',
+      updatedAt: Date.now(),
+      consultationDate: '2026-11-20',
+      consultationTime: '10:30',
+      diagnosis: 'Caries dentinaria pieza 4.6',
+      patient: {
+        fullName: 'Valentina Rodríguez',
+        documentType: 'CI',
+        documentNumber: '4.987.654-3',
+        phone: '099 111 222',
+        insuranceProvider: 'FONASA',
+      },
+      allergies: 'Penicilina',
+      medicalHistory: 'Asma',
+    };
+
+    await useAppStore.getState().saveClinicalNote(session.id, note);
+
+    expect(createPatientSpy).toHaveBeenCalledTimes(1);
+    const createdPatient = createPatientSpy.mock.calls[0][0] as Patient;
+    expect(createdPatient.fullName).toBe('Valentina Rodríguez');
+    expect(createdPatient.dni).toBe('4.987.654-3');
+    expect(createdPatient.documentType).toBe('CI');
+    expect(createdPatient.allergies).toBe('Penicilina');
+
+    expect(
+      useAppStore.getState().patients.some((p) => p.id === createdPatient.id)
+    ).toBe(true);
+
+    expect(updateSessionSpy).toHaveBeenCalledWith(
+      session.id,
+      expect.objectContaining({
+        patientId: createdPatient.id,
+        clinicalNote: expect.objectContaining({
+          patient: expect.objectContaining({ patientId: createdPatient.id }),
+        }),
+      })
+    );
+
+    expect(createEvolutionSpy).toHaveBeenCalledTimes(1);
+    const evolution = createEvolutionSpy.mock.calls[0][0] as ClinicalEvolutionEntry;
+    expect(evolution.patientId).toBe(createdPatient.id);
+    expect(evolution.procedure).toContain('Restauración con composite');
+    expect(evolution.description).toContain('Diagnóstico: Caries dentinaria');
+    expect(evolution.sourceSessionId).toBe(session.id);
   });
 
   it('always allows finance access for single personal practitioner and updates personal practitioner profile', async () => {
